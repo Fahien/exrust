@@ -1,4 +1,5 @@
 [workspace]
 members = [
-	"the-book/common-programming-concepts"
+	"the-book/common-programming-concepts",
+	"the-book/guessing-game",
 ]
