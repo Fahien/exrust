@@ -2,4 +2,5 @@
 members = [
 	"the-book/common-programming-concepts",
 	"the-book/guessing-game",
+	"the-book/understanding-ownership",
 ]
