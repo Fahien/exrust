@@ -4,4 +4,5 @@ members = [
 	"the-book/guessing-game",
 	"the-book/understanding-ownership",
 	"the-book/using-structs-to-structure-related-data",
+	"the-book/enums-and-pattern-matching",
 ]
