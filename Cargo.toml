@@ -5,4 +5,5 @@ members = [
 	"the-book/understanding-ownership",
 	"the-book/using-structs-to-structure-related-data",
 	"the-book/enums-and-pattern-matching",
+	"the-book/managing-growing-projects-with-packages-crates-and-modules",
 ]
