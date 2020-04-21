@@ -8,4 +8,5 @@ members = [
 	"the-book/managing-growing-projects-with-packages-crates-and-modules",
 	"the-book/common-collections",
 	"the-book/error-handling",
+	"the-book/generic-types-traits-and-lifetimes",
 ]
