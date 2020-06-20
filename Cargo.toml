@@ -11,4 +11,5 @@ members = [
 	"the-book/generic-types-traits-and-lifetimes",
 	"the-book/writing-automated-tests",
 	"the-book/command-line-program",
+	"the-book/functional-language-features",
 ]
