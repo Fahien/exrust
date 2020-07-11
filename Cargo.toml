@@ -13,4 +13,5 @@ members = [
 	"the-book/command-line-program",
 	"the-book/functional-language-features",
 	"the-book/smart-pointers",
+	"the-book/fearless-concurrency",
 ]
