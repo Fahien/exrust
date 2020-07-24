@@ -14,4 +14,5 @@ members = [
 	"the-book/functional-language-features",
 	"the-book/smart-pointers",
 	"the-book/fearless-concurrency",
+	"the-book/object-oriented-programming",
 ]
