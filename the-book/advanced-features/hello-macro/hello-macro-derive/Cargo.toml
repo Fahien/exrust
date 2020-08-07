@@ -1,0 +1,16 @@
+[package]
+name = "hello-macro-derive"
+version = "0.1.0"
+authors = ["Antonio Caggiano <info@antoniocaggiano.eu>"]
+edition = "2018"
+
+[lib]
+# Compiler's API that allows us to read and manipulate Rust code from our code
+proc-macro = true
+
+[dependencies]
+# Parses Rust code from a string into a data structure
+syn = "1.0"
+
+# Turns syn data structures back into Rust code
+quote = "1.0"

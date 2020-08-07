@@ -16,4 +16,5 @@ members = [
 	"the-book/fearless-concurrency",
 	"the-book/object-oriented-programming",
 	"the-book/patterns-and-matching",
+	"the-book/advanced-features",
 ]
