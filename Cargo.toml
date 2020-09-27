@@ -12,4 +12,5 @@ members = [
 	"the-book/writing-automated-tests",
 	"the-book/command-line-program",
 	"the-book/functional-language-features",
+	"the-book/smart-pointers",
 ]
