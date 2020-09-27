@@ -9,4 +9,5 @@ members = [
 	"the-book/common-collections",
 	"the-book/error-handling",
 	"the-book/generic-types-traits-and-lifetimes",
+	"the-book/writing-automated-tests",
 ]
