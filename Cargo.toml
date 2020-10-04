@@ -22,4 +22,5 @@ members = [
 	"in-action/compound_data_types",
 	"in-action/cubesat",
 	"in-action/data_in_depth",
+	"in-action/cpusim",
 ]
