@@ -1,0 +1,8 @@
+[package]
+name = "memory"
+version = "0.1.0"
+authors = ["Antonio Caggiano <info@antoniocaggiano.eu>"]
+edition = "2018"
+
+[dependencies]
+nix = "0.18.0"

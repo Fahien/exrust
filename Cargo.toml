@@ -23,4 +23,5 @@ members = [
 	"in-action/cubesat",
 	"in-action/data_in_depth",
 	"in-action/cpusim",
+	"in-action/memory",
 ]
