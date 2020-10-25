@@ -99,10 +99,10 @@ impl Universe {
 
     /// Initializes an universe with an interesting pattern of live cells
     pub fn new() -> Self {
-        let width = 40;
-        let height = 60;
+        let width = 64;
+        let height = 64;
 
-        let cells = (0..width * height)
+        let cells: Vec<Cell> = (0..width * height)
             .map(|i| {
                 if i % 2 == 0 || i % 7 == 0 {
                     Cell::Alive
@@ -113,8 +113,8 @@ impl Universe {
             .collect();
 
         Self {
-            width,
-            height,
+            width: width as u32,
+            height: height as u32,
             cells,
         }
     }
@@ -122,6 +122,19 @@ impl Universe {
     pub fn render(&self) -> String {
         // Automatically provided by the Display trait
         self.to_string()
+    }
+
+    pub fn get_width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn get_height(&self) -> u32 {
+        self.height
+    }
+
+    /// Returns a pointer to the start of the cells array
+    pub fn get_cells(&self) -> *const Cell {
+        self.cells.as_ptr()
     }
 }
 
