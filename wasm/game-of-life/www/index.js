@@ -45,7 +45,7 @@ const get_index = (row, column) => {
 
 const draw_cells = () => {
     // Get a pointer to the universe's cells
-    const cells_ptr = universe.get_cells();
+    const cells_ptr = universe.get_cells_ptr();
 
     // Construct a Uint8Array overlaying the cells buffer
     const cells = new Uint8Array(memory.buffer, cells_ptr, width * height);
