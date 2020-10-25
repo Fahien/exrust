@@ -24,4 +24,6 @@ members = [
 	"in-action/data_in_depth",
 	"in-action/cpusim",
 	"in-action/memory",
+
+	"wasm/game-of-life",
 ]
