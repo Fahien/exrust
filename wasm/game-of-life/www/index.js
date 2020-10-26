@@ -74,8 +74,16 @@ const draw_cells = () => {
     ctx.stroke();
 };
 
+// Keep track of the latest animation frame id
+// That could be used in case we want to cancel it
+let frame_id = null;
+
+const is_paused = () => {
+    return frame_id === null;
+}
+
 // On each iteration, draws the current universe to the pre and then calls Universe::tick
-const renderLoop = () => {
+const render_loop = () => {
     // Pause on each iteration of the loop
     debugger;
     universe.tick();
@@ -83,8 +91,29 @@ const renderLoop = () => {
     draw_grid();
     draw_cells();
 
-    requestAnimationFrame(renderLoop);
+    frame_id = requestAnimationFrame(render_loop);
 }
 
-// Make initial call for the first frame
-requestAnimationFrame(renderLoop)
+const play_pause_button = document.getElementById("play-pause");
+
+const play = () => {
+    play_pause_button.textContent = "⏸️";
+    render_loop();
+}
+
+const pause = () => {
+    play_pause_button.textContent = "▶️";
+    cancelAnimationFrame(frame_id);
+    frame_id = null;
+}
+
+play_pause_button.addEventListener("click", event => {
+    if (is_paused()) {
+        play();
+    } else {
+        pause();
+    }
+})
+
+// Triggers first animation frame
+play();
