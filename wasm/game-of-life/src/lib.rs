@@ -8,6 +8,13 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+// Wrap web-sys console log function in a println! style macro
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 #[wasm_bindgen]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -83,6 +90,11 @@ impl Universe {
                 let cell = self.cells[idx];
                 let live_neighbors = self.count_live_neighbors(row, col);
 
+                log!(
+                    "cell[{}, {}] is {:?} and has {} live neighbors",
+                    row, col, cell, live_neighbors
+                );
+
                 let next_cell = match (cell, live_neighbors) {
                     // Rule 1: underpopulation
                     // Any live cell with fewer than two live neighbours dies
@@ -113,6 +125,10 @@ impl Universe {
 
     /// Initializes an universe with an interesting pattern of live cells
     pub fn new() -> Self {
+        // Here we install a hook that in case of panic will display
+        // informative error messages in the developer console
+        utils::set_panic_hook();
+
         let width = 64;
         let height = 64;
 

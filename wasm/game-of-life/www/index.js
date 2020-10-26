@@ -76,6 +76,8 @@ const draw_cells = () => {
 
 // On each iteration, draws the current universe to the pre and then calls Universe::tick
 const renderLoop = () => {
+    // Pause on each iteration of the loop
+    debugger;
     universe.tick();
 
     draw_grid();
