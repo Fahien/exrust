@@ -80,32 +80,30 @@ let frame_id = null;
 
 const is_paused = () => {
     return frame_id === null;
-}
+};
 
 // On each iteration, draws the current universe to the pre and then calls Universe::tick
 const render_loop = () => {
-    // Pause on each iteration of the loop
-    debugger;
     universe.tick();
 
     draw_grid();
     draw_cells();
 
     frame_id = requestAnimationFrame(render_loop);
-}
+};
 
 const play_pause_button = document.getElementById("play-pause");
 
 const play = () => {
     play_pause_button.textContent = "⏸️";
     render_loop();
-}
+};
 
 const pause = () => {
     play_pause_button.textContent = "▶️";
     cancelAnimationFrame(frame_id);
     frame_id = null;
-}
+};
 
 play_pause_button.addEventListener("click", event => {
     if (is_paused()) {
@@ -113,7 +111,27 @@ play_pause_button.addEventListener("click", event => {
     } else {
         pause();
     }
-})
+});
+
+canvas.addEventListener("click", event => {
+    // Translate click coordinates into a row and a col
+    const boundings = canvas.getBoundingClientRect();
+
+    const scale_x = canvas.width / boundings.width;
+    const scale_y = canvas.height / boundings.height;
+
+    const left = (event.clientX - boundings.left) * scale_x;
+    const top = (event.clientY - boundings.top) * scale_y;
+
+    const row = Math.min(Math.floor(top / (CELL_SIZE + 1)), height - 1);
+    const col = Math.min(Math.floor(left / (CELL_SIZE + 1)), width - 1);
+
+    console.log("Clicking at " + row + ", " + col);
+    universe.toggle_cell(row, col);
+
+    draw_grid();
+    draw_cells();
+});
 
 // Triggers first animation frame
 play();

@@ -25,6 +25,16 @@ pub enum Cell {
     Alive = 1,
 }
 
+impl Cell {
+    /// Flips the cell state
+    fn toggle(&mut self) {
+        *self = match *self {
+            Cell::Dead => Cell::Alive,
+            Cell::Alive => Cell::Dead,
+        }
+    }
+}
+
 // This annotation helps us define and work with opaque
 // handles to JavaScript objects or Boxed Rust structures
 #[wasm_bindgen]
@@ -89,11 +99,6 @@ impl Universe {
                 let idx = self.get_index(row, col);
                 let cell = self.cells[idx];
                 let live_neighbors = self.count_live_neighbors(row, col);
-
-                log!(
-                    "cell[{}, {}] is {:?} and has {} live neighbors",
-                    row, col, cell, live_neighbors
-                );
 
                 let next_cell = match (cell, live_neighbors) {
                     // Rule 1: underpopulation
@@ -177,6 +182,12 @@ impl Universe {
     pub fn set_height(&mut self, height: u32) {
         self.height = height;
         self.cells = (0..self.width * height).map(|_i| Cell::Dead).collect();
+    }
+
+    /// Flips the state of a cell at a given position
+    pub fn toggle_cell(&mut self, row: u32, col: u32) {
+        let idx = self.get_index(row, col);
+        self.cells[idx].toggle();
     }
 }
 
