@@ -26,4 +26,5 @@ members = [
 	"in-action/memory",
 
 	"wasm/game-of-life",
+	"wasm/webgl",
 ]
