@@ -4,6 +4,44 @@ import { Universe, Cell } from "game-of-life";
 // Import the WebAssebly memory
 import { memory } from "game-of-life/game_of_life_bg";
 
+// FPS timer useful to investigate rendering
+const fps = new class {
+    constructor() {
+        this.fps = document.getElementById("fps");
+        this.frames = [];
+        this.prev = performance.now();
+    }
+
+    render() {
+        const now = performance.now();
+        const delta = now - this.prev;
+        this.prev = now;
+        const fps = (1 / delta) * 1000;
+
+        this.frames.push(fps);
+        if (this.frames.length > 100) {
+            // Remove the first element
+            this.frames.shift();
+        }
+
+        // Find min, max, mean
+        let min = Infinity;
+        let max = -Infinity;
+        let sum = 0;
+        for (let i = 0; i < this.frames.length; i++) {
+            sum += this.frames[i];
+            min = Math.min(this.frames[i], min);
+            max = Math.max(this.frames[i], max);
+        }
+        const mean = sum / this.frames.length;
+
+        this.fps.textContent = `fps = ${Math.round(fps)}
+avg = ${Math.round(mean)}
+min = ${Math.round(min)}
+max = ${Math.round(max)}`;
+    }
+};
+
 const CELL_SIZE = 9; // px
 const GRID_COLOR = "#CCCCCC";
 const DEAD_COLOR = "#FFFFFF";
@@ -84,6 +122,8 @@ const is_paused = () => {
 
 // On each iteration, draws the current universe to the pre and then calls Universe::tick
 const render_loop = () => {
+    fps.render();
+
     universe.tick();
 
     draw_grid();
