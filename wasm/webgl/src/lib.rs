@@ -3,6 +3,7 @@ mod utils;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
+use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use web_sys::WebGlRenderingContext as GL;
 use web_sys::*;
 
@@ -136,8 +137,10 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
     let vert_source = r#"
         attribute vec2 position;
 
+        uniform mat4 transform;
+
         void main() {
-            gl_Position = vec4(position, 0.0, 1.0);
+            gl_Position = transform * vec4(position, 0.0, 1.0);
         }
         "#;
 
@@ -217,6 +220,22 @@ impl Context {
         self.gl
             .vertex_attrib_pointer_with_i32(position_loc as u32, 2, GL::FLOAT, false, 0, 0);
         self.gl.enable_vertex_attrib_array(position_loc as u32);
+
+        let transform_loc = self
+            .gl
+            .get_uniform_location(&self.triangle_program, "transform");
+        let mut transform = Isometry3::identity();
+        transform.append_translation_mut(&Translation3::new(0.5, -0.5, 0.0));
+
+        let rotation =
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f32::consts::FRAC_PI_2 / 2.0);
+        transform.append_rotation_mut(&rotation);
+
+        self.gl.uniform_matrix4fv_with_f32_array(
+            transform_loc.as_ref(),
+            false,
+            transform.to_homogeneous().as_slice(),
+        );
 
         let color_loc = self
             .gl
