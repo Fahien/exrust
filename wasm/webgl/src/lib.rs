@@ -19,6 +19,18 @@ macro_rules! log {
     }
 }
 
+trait ToJsFloat32Array {
+    /// Returns a TypedArray which is a view into this vector.
+    /// Please do not reallocate memory while the view is alive or it can become invalid.
+    unsafe fn to_js(&self) -> js_sys::Float32Array;
+}
+
+impl ToJsFloat32Array for Vec<f32> {
+    unsafe fn to_js(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::view(self)
+    }
+}
+
 /// Returns a WebGL Context
 fn get_gl_context() -> Result<GL, JsValue> {
     utils::set_panic_hook();
@@ -89,15 +101,12 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
 #[wasm_bindgen]
 pub struct Context {
     gl: WebGlRenderingContext,
-    program: WebGlProgram,
+    point_program: WebGlProgram,
+    triangle_program: WebGlProgram,
 }
 
-#[wasm_bindgen]
-impl Context {
-    pub fn new() -> Result<Context, JsValue> {
-        let gl = get_gl_context()?;
-
-        let vert_source = r#"
+fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
+    let vert_source = r#"
         attribute vec2 position;
         attribute float point_size;
 
@@ -107,7 +116,7 @@ impl Context {
         }
         "#;
 
-        let frag_source = r#"
+    let frag_source = r#"
         precision mediump float;
 
         uniform vec4 color;
@@ -117,30 +126,107 @@ impl Context {
         }
         "#;
 
-        let vert_shader = compile_shader(&gl, GL::VERTEX_SHADER, vert_source);
-        let frag_shader = compile_shader(&gl, GL::FRAGMENT_SHADER, frag_source);
-        let program = link_program(&gl, vert_shader, frag_shader);
+    let vert_shader = compile_shader(gl, GL::VERTEX_SHADER, vert_source);
+    let frag_shader = compile_shader(gl, GL::FRAGMENT_SHADER, frag_source);
 
-        Ok(Context { gl, program })
+    link_program(gl, vert_shader, frag_shader)
+}
+
+fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
+    let vert_source = r#"
+        attribute vec2 position;
+
+        void main() {
+            gl_Position = vec4(position, 0.0, 1.0);
+        }
+        "#;
+
+    let frag_source = r#"
+        precision mediump float;
+
+        uniform vec4 color;
+
+        void main() {
+            gl_FragColor = color;
+        }
+        "#;
+
+    let vert_shader = compile_shader(gl, GL::VERTEX_SHADER, vert_source);
+    let frag_shader = compile_shader(gl, GL::FRAGMENT_SHADER, frag_source);
+
+    link_program(gl, vert_shader, frag_shader)
+}
+
+#[wasm_bindgen]
+impl Context {
+    pub fn new() -> Result<Context, JsValue> {
+        let gl = get_gl_context()?;
+        let point_program = create_point_program(&gl);
+        let triangle_program = create_triangle_program(&gl);
+
+        Ok(Context {
+            gl,
+            point_program,
+            triangle_program,
+        })
     }
 
     /// Draws a point at position x and y
     pub fn draw_point(&self, x: f32, y: f32) -> Result<(), JsValue> {
-        self.gl.use_program(Some(&self.program));
+        self.gl.use_program(Some(&self.point_program));
 
-        let position_loc = self.gl.get_attrib_location(&self.program, "position");
+        let position_loc = self.gl.get_attrib_location(&self.point_program, "position");
         self.gl.vertex_attrib3f(position_loc as u32, x, y, 0.0);
 
-        let point_size_loc = self.gl.get_attrib_location(&self.program, "point_size");
+        let point_size_loc = self
+            .gl
+            .get_attrib_location(&self.point_program, "point_size");
         self.gl.vertex_attrib1f(point_size_loc as u32, 16.0);
 
-        let color_loc = self.gl.get_uniform_location(&self.program, "color");
+        let color_loc = self.gl.get_uniform_location(&self.point_program, "color");
         self.gl.uniform4f(color_loc.as_ref(), 0.0, 1.0, 0.0, 1.0);
 
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
 
         self.gl.draw_arrays(GL::POINTS, 0, 1);
+
+        Ok(())
+    }
+
+    /// Draws a triangle
+    pub fn draw_triangle(&self) -> Result<(), JsValue> {
+        self.gl.use_program(Some(&self.triangle_program));
+
+        let vertex_buffer = self.gl.create_buffer();
+        self.gl
+            .bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
+
+        let vertices: Vec<f32> = vec![-0.5, -0.5, 0.5, -0.5, 0.0, 0.5];
+
+        self.gl.buffer_data_with_array_buffer_view(
+            GL::ARRAY_BUFFER,
+            unsafe { &vertices.to_js() },
+            GL::STATIC_DRAW,
+        );
+
+        let position_loc = self
+            .gl
+            .get_attrib_location(&self.triangle_program, "position");
+
+        self.gl
+            .vertex_attrib_pointer_with_i32(position_loc as u32, 2, GL::FLOAT, false, 0, 0);
+        self.gl.enable_vertex_attrib_array(position_loc as u32);
+
+        let color_loc = self
+            .gl
+            .get_uniform_location(&self.triangle_program, "color");
+        self.gl.uniform4f(color_loc.as_ref(), 0.0, 1.0, 0.0, 1.0);
+
+        self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
+        self.gl.clear(GL::COLOR_BUFFER_BIT);
+
+        self.gl.draw_arrays(GL::TRIANGLES, 0, 3);
 
         Ok(())
     }
