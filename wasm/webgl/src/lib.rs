@@ -39,6 +39,8 @@ fn get_gl_context() -> Result<GL, JsValue> {
     let doc = window().unwrap().document().unwrap();
     let canvas = doc.get_element_by_id("area").unwrap();
     let canvas: HtmlCanvasElement = canvas.dyn_into::<HtmlCanvasElement>()?;
+    canvas.set_width(canvas.client_width() as u32);
+    canvas.set_height(canvas.client_height() as u32);
 
     Ok(canvas.get_context("webgl")?.unwrap().dyn_into::<GL>()?)
 }
@@ -99,9 +101,37 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
     program
 }
 
+/// Triangle primitive
+struct Triangle {
+    vertex_buffer: Option<WebGlBuffer>,
+}
+
+impl Triangle {
+    fn new(gl: &GL) -> Self {
+        let vertex_buffer = gl.create_buffer();
+        gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
+
+        let vertices: Vec<f32> = vec![-0.5, -0.5, 0.5, -0.5, 0.0, 0.5];
+
+        gl.buffer_data_with_array_buffer_view(
+            GL::ARRAY_BUFFER,
+            unsafe { &vertices.to_js() },
+            GL::STATIC_DRAW,
+        );
+
+        Self { vertex_buffer }
+    }
+
+    fn bind(&self, gl: &GL) {
+        gl.bind_buffer(GL::ARRAY_BUFFER, self.vertex_buffer.as_ref());
+    }
+}
+
 #[wasm_bindgen]
 pub struct Context {
+    performance: web_sys::Performance,
     gl: WebGlRenderingContext,
+    triangle: Triangle,
     point_program: WebGlProgram,
     triangle_program: WebGlProgram,
 }
@@ -164,11 +194,15 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
 impl Context {
     pub fn new() -> Result<Context, JsValue> {
         let gl = get_gl_context()?;
+        let performance = web_sys::window().unwrap().performance().unwrap();
         let point_program = create_point_program(&gl);
         let triangle_program = create_triangle_program(&gl);
+        let triangle = Triangle::new(&gl);
 
         Ok(Context {
             gl,
+            performance,
+            triangle,
             point_program,
             triangle_program,
         })
@@ -201,17 +235,7 @@ impl Context {
     pub fn draw_triangle(&self) -> Result<(), JsValue> {
         self.gl.use_program(Some(&self.triangle_program));
 
-        let vertex_buffer = self.gl.create_buffer();
-        self.gl
-            .bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
-
-        let vertices: Vec<f32> = vec![-0.5, -0.5, 0.5, -0.5, 0.0, 0.5];
-
-        self.gl.buffer_data_with_array_buffer_view(
-            GL::ARRAY_BUFFER,
-            unsafe { &vertices.to_js() },
-            GL::STATIC_DRAW,
-        );
+        self.triangle.bind(&self.gl);
 
         let position_loc = self
             .gl
@@ -227,8 +251,9 @@ impl Context {
         let mut transform = Isometry3::identity();
         transform.append_translation_mut(&Translation3::new(0.5, -0.5, 0.0));
 
+        let now = self.performance.now();
         let rotation =
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f32::consts::FRAC_PI_2 / 2.0);
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
         transform.append_rotation_mut(&rotation);
 
         self.gl.uniform_matrix4fv_with_f32_array(

@@ -2,4 +2,9 @@ import * as webgl from "webgl";
 
 var ctx = webgl.Context.new();
 
-ctx.draw_triangle();
+const tick = () => {
+    ctx.draw_triangle();
+    requestAnimationFrame(tick);
+}
+
+requestAnimationFrame(tick);

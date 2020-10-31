@@ -13,6 +13,7 @@ features = [
     "console",
     "Window",
     "Document",
+    "Performance",
     "HtmlCanvasElement",
     "WebGlRenderingContext",
     "WebGlShader",
