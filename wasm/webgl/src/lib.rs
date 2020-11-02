@@ -113,6 +113,8 @@ struct Vertex {
 /// Triangle primitive
 struct Triangle {
     vertex_buffer: Option<WebGlBuffer>,
+    index_buffer: Option<WebGlBuffer>,
+    index_count: i32,
 }
 
 impl Triangle {
@@ -141,11 +143,20 @@ impl Triangle {
             GL::STATIC_DRAW,
         );
 
-        Self { vertex_buffer }
+        let index_buffer = gl.create_buffer();
+        gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, index_buffer.as_ref());
+        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &[0, 1, 2], GL::STATIC_DRAW);
+
+        Self {
+            vertex_buffer,
+            index_buffer,
+            index_count: 3,
+        }
     }
 
     fn bind(&self, gl: &GL) {
         gl.bind_buffer(GL::ARRAY_BUFFER, self.vertex_buffer.as_ref());
+        gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, self.index_buffer.as_ref());
     }
 }
 
@@ -315,7 +326,12 @@ impl Context {
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
 
-        self.gl.draw_arrays(GL::TRIANGLES, 0, 3);
+        self.gl.draw_elements_with_i32(
+            GL::TRIANGLES,
+            self.triangle.index_count,
+            GL::UNSIGNED_BYTE,
+            0,
+        );
 
         Ok(())
     }
