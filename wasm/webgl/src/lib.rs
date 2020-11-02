@@ -26,9 +26,12 @@ trait ToJsFloat32Array {
     unsafe fn to_js(&self) -> js_sys::Float32Array;
 }
 
-impl ToJsFloat32Array for Vec<f32> {
+impl ToJsFloat32Array for Vec<Vertex> {
     unsafe fn to_js(&self) -> js_sys::Float32Array {
-        js_sys::Float32Array::view(self)
+        let len = self.len() * std::mem::size_of::<Vertex>() / std::mem::size_of::<f32>();
+        let floats = std::slice::from_raw_parts(self.as_ptr() as *const f32, len);
+        log!("Vertices: {:?}", floats);
+        js_sys::Float32Array::view(floats)
     }
 }
 
@@ -101,6 +104,12 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
     program
 }
 
+#[repr(C)]
+struct Vertex {
+    position: [f32; 2], // xy
+    color: [f32; 4],    // rgba
+}
+
 /// Triangle primitive
 struct Triangle {
     vertex_buffer: Option<WebGlBuffer>,
@@ -111,7 +120,20 @@ impl Triangle {
         let vertex_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
 
-        let vertices: Vec<f32> = vec![-0.5, -0.5, 0.5, -0.5, 0.0, 0.5];
+        let vertices: Vec<Vertex> = vec![
+            Vertex {
+                position: [-0.5, -0.5],
+                color: [1.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, -0.5],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [0.0, 0.5],
+                color: [0.0, 1.0, 1.0, 1.0],
+            },
+        ];
 
         gl.buffer_data_with_array_buffer_view(
             GL::ARRAY_BUFFER,
@@ -165,19 +187,23 @@ fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
 
 fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
     let vert_source = r#"
-        attribute vec2 position;
+        attribute vec2 in_position;
+        attribute vec4 in_color;
+
+        varying vec4 color;
 
         uniform mat4 transform;
 
         void main() {
-            gl_Position = transform * vec4(position, 0.0, 1.0);
+            color = in_color;
+            gl_Position = transform * vec4(in_position, 0.0, 1.0);
         }
         "#;
 
     let frag_source = r#"
         precision mediump float;
 
-        uniform vec4 color;
+        varying vec4 color;
 
         void main() {
             gl_FragColor = color;
@@ -239,21 +265,45 @@ impl Context {
 
         let position_loc = self
             .gl
-            .get_attrib_location(&self.triangle_program, "position");
+            .get_attrib_location(&self.triangle_program, "in_position");
 
-        self.gl
-            .vertex_attrib_pointer_with_i32(position_loc as u32, 2, GL::FLOAT, false, 0, 0);
+        // Number of bytes between each vertex element
+        let stride = std::mem::size_of::<Vertex>() as i32;
+        // Offset of vertex data from the beginning of the buffer
+        let offset = 0;
+        self.gl.vertex_attrib_pointer_with_i32(
+            position_loc as u32,
+            2,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
         self.gl.enable_vertex_attrib_array(position_loc as u32);
+
+        let color_loc = self
+            .gl
+            .get_attrib_location(&self.triangle_program, "in_color");
+
+        let offset = 2 * std::mem::size_of::<f32>() as i32;
+        self.gl.vertex_attrib_pointer_with_i32(
+            color_loc as u32,
+            4,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.gl.enable_vertex_attrib_array(color_loc as u32);
 
         let transform_loc = self
             .gl
             .get_uniform_location(&self.triangle_program, "transform");
         let mut transform = Isometry3::identity();
-        transform.append_translation_mut(&Translation3::new(0.5, -0.5, 0.0));
+        transform.append_translation_mut(&Translation3::new(0.1, -0.1, 0.0));
 
         let now = self.performance.now();
-        let rotation =
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
+        let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
         transform.append_rotation_mut(&rotation);
 
         self.gl.uniform_matrix4fv_with_f32_array(
@@ -261,11 +311,6 @@ impl Context {
             false,
             transform.to_homogeneous().as_slice(),
         );
-
-        let color_loc = self
-            .gl
-            .get_uniform_location(&self.triangle_program, "color");
-        self.gl.uniform4f(color_loc.as_ref(), 0.0, 1.0, 0.0, 1.0);
 
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
