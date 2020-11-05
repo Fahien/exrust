@@ -3,7 +3,7 @@ import * as webgl from "webgl";
 var ctx = webgl.Context.new();
 
 const tick = () => {
-    ctx.draw_triangle();
+    ctx.draw_primitive();
     requestAnimationFrame(tick);
 }
 

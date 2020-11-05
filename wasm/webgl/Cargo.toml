@@ -19,7 +19,8 @@ features = [
     "WebGlShader",
     "WebGlProgram",
     "WebGlUniformLocation",
-    "WebGlBuffer"
+    "WebGlBuffer",
+    "WebGlTexture"
 ]
 
 [features]

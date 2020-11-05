@@ -108,6 +108,7 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
 struct Vertex {
     position: [f32; 3], // xy
     color: [f32; 4],    // rgba
+    uv: [f32; 2],
 }
 
 /// Generic primitive geometry
@@ -125,15 +126,18 @@ impl Primitive {
         let vertices: Vec<Vertex> = vec![
             Vertex {
                 position: [-0.5, -0.5, 0.0],
-                color: [1.0, 1.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.0, 0.5, 0.0],
-                color: [0.0, 1.0, 1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.5, 1.0],
             },
         ];
 
@@ -162,104 +166,128 @@ impl Primitive {
             // Front
             Vertex {
                 position: [-0.5, -0.5, 0.5],
-                color: [1.0, 1.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.5],
-                color: [1.0, 1.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
-                color: [1.0, 1.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, 0.5, 0.5],
-                color: [1.0, 1.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 1.0],
             },
             // Right
             Vertex {
                 position: [0.5, -0.5, 0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, -0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             // Back
             Vertex {
                 position: [0.5, -0.5, -0.5],
                 color: [0.0, 1.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, -0.5],
                 color: [0.0, 1.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
                 color: [0.0, 1.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
                 color: [0.0, 1.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             // Lef
             Vertex {
                 position: [-0.5, -0.5, -0.5],
                 color: [1.0, 0.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, 0.5],
                 color: [1.0, 0.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, 0.5],
                 color: [1.0, 0.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
                 color: [1.0, 0.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             // Top
             Vertex {
                 position: [-0.5, 0.5, 0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
                 color: [1.0, 0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
             },
             // Bottom
             Vertex {
                 position: [-0.5, -0.5, -0.5],
                 color: [0.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, -0.5],
                 color: [0.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.5],
                 color: [0.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, 0.5],
                 color: [0.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
             },
         ];
 
@@ -295,11 +323,69 @@ impl Primitive {
     }
 }
 
+struct Texture {
+    gl: GL,
+    handle: WebGlTexture,
+}
+
+impl Texture {
+    fn new(gl: GL) -> Self {
+        let handle = gl.create_texture().expect("Failed to create texture");
+
+        let texture = Self { gl, handle };
+
+        texture.bind();
+
+        texture
+            .gl
+            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
+        texture
+            .gl
+            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
+
+        let pixels = [
+            255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+        ];
+        texture.upload(2, 2, &pixels);
+
+        texture
+    }
+
+    fn bind(&self) {
+        self.gl.active_texture(GL::TEXTURE0);
+        self.gl.bind_texture(GL::TEXTURE_2D, Some(&self.handle));
+    }
+
+    /// Uploads pixels data to the texture memory in the GPU
+    fn upload(&self, width: u32, height: u32, pixels: &[u8]) {
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                GL::TEXTURE_2D,
+                0,
+                GL::RGBA as i32,
+                width as i32,
+                height as i32,
+                0,
+                GL::RGBA,
+                GL::UNSIGNED_BYTE,
+                Some(&pixels),
+            )
+            .expect("Failed to upload texture data");
+    }
+}
+
+impl Drop for Texture {
+    fn drop(&mut self) {
+        self.gl.delete_texture(Some(&self.handle))
+    }
+}
+
 #[wasm_bindgen]
 pub struct Context {
     performance: web_sys::Performance,
     gl: WebGlRenderingContext,
     primitive: Primitive,
+    texture: Texture,
     point_program: WebGlProgram,
     triangle_program: WebGlProgram,
 }
@@ -335,13 +421,16 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
     let vert_source = r#"
         attribute vec3 in_position;
         attribute vec4 in_color;
+        attribute vec2 in_uv;
 
         varying vec4 color;
+        varying vec2 uv;
 
         uniform mat4 transform;
 
         void main() {
             color = in_color;
+            uv = in_uv;
             gl_Position = transform * vec4(in_position, 1.0);
         }
         "#;
@@ -350,9 +439,12 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         precision mediump float;
 
         varying vec4 color;
+        varying vec2 uv;
+
+        uniform sampler2D sampler;
 
         void main() {
-            gl_FragColor = color;
+            gl_FragColor = color * texture2D(sampler, uv);
         }
         "#;
 
@@ -369,12 +461,14 @@ impl Context {
         let performance = web_sys::window().unwrap().performance().unwrap();
         let point_program = create_point_program(&gl);
         let triangle_program = create_triangle_program(&gl);
-        let primitive = Primitive::cube(&gl);
+        let primitive = Primitive::triangle(&gl);
+        let texture = Texture::new(gl.clone());
 
         Ok(Context {
             gl,
             performance,
             primitive,
+            texture,
             point_program,
             triangle_program,
         })
@@ -404,12 +498,13 @@ impl Context {
     }
 
     /// Draws a primitive
-    pub fn draw_triangle(&self) -> Result<(), JsValue> {
+    pub fn draw_primitive(&self) -> Result<(), JsValue> {
         self.gl.enable(GL::DEPTH_TEST);
         self.gl.use_program(Some(&self.triangle_program));
 
         self.primitive.bind(&self.gl);
 
+        // Position
         let position_loc = self
             .gl
             .get_attrib_location(&self.triangle_program, "in_position");
@@ -418,6 +513,7 @@ impl Context {
         let stride = std::mem::size_of::<Vertex>() as i32;
         // Offset of vertex data from the beginning of the buffer
         let offset = 0;
+
         self.gl.vertex_attrib_pointer_with_i32(
             position_loc as u32,
             3,
@@ -428,6 +524,7 @@ impl Context {
         );
         self.gl.enable_vertex_attrib_array(position_loc as u32);
 
+        // Color
         let color_loc = self
             .gl
             .get_attrib_location(&self.triangle_program, "in_color");
@@ -443,6 +540,14 @@ impl Context {
         );
         self.gl.enable_vertex_attrib_array(color_loc as u32);
 
+        // Texture coordinates
+        let uv_loc = self.gl.get_attrib_location(&self.triangle_program, "in_uv");
+        let offset = 7 * std::mem::size_of::<f32>() as i32;
+        self.gl
+            .vertex_attrib_pointer_with_i32(uv_loc as u32, 2, GL::FLOAT, false, stride, offset);
+        self.gl.enable_vertex_attrib_array(uv_loc as u32);
+
+        // Transform
         let transform_loc = self
             .gl
             .get_uniform_location(&self.triangle_program, "transform");
@@ -460,6 +565,13 @@ impl Context {
             false,
             transform.to_homogeneous().as_slice(),
         );
+
+        // Texture
+        self.texture.bind();
+        let sampler_loc = self
+            .gl
+            .get_uniform_location(&self.triangle_program, "sampler");
+        self.gl.uniform1i(sampler_loc.as_ref(), 0);
 
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
