@@ -154,6 +154,141 @@ impl Primitive {
         }
     }
 
+    fn cube(gl: &GL) -> Self {
+        let vertex_buffer = gl.create_buffer();
+        gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
+
+        let vertices = vec![
+            // Front
+            Vertex {
+                position: [-0.5, -0.5, 0.5],
+                color: [1.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, -0.5, 0.5],
+                color: [1.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, 0.5, 0.5],
+                color: [1.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, 0.5, 0.5],
+                color: [1.0, 1.0, 0.0, 1.0],
+            },
+            // Right
+            Vertex {
+                position: [0.5, -0.5, 0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, -0.5, -0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, 0.5, -0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, 0.5, 0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            // Back
+            Vertex {
+                position: [0.5, -0.5, -0.5],
+                color: [0.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, -0.5, -0.5],
+                color: [0.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, 0.5, -0.5],
+                color: [0.0, 1.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, 0.5, -0.5],
+                color: [0.0, 1.0, 0.0, 1.0],
+            },
+            // Lef
+            Vertex {
+                position: [-0.5, -0.5, -0.5],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, -0.5, 0.5],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, 0.5, 0.5],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, 0.5, -0.5],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            // Top
+            Vertex {
+                position: [-0.5, 0.5, 0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, 0.5, 0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, 0.5, -0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, 0.5, -0.5],
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            // Bottom
+            Vertex {
+                position: [-0.5, -0.5, -0.5],
+                color: [0.0, 1.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, -0.5, -0.5],
+                color: [0.0, 1.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [0.5, -0.5, 0.5],
+                color: [0.0, 1.0, 1.0, 1.0],
+            },
+            Vertex {
+                position: [-0.5, -0.5, 0.5],
+                color: [0.0, 1.0, 1.0, 1.0],
+            },
+        ];
+
+        let indices: Vec<u8> = vec![
+            0, 1, 2, 0, 2, 3, // front face
+            4, 5, 6, 4, 6, 7, // right
+            8, 9, 10, 8, 10, 11, // back
+            12, 13, 14, 12, 14, 15, // left
+            16, 17, 18, 16, 18, 19, // top
+            20, 21, 22, 20, 22, 23, // bottom
+        ];
+
+        gl.buffer_data_with_array_buffer_view(
+            GL::ARRAY_BUFFER,
+            unsafe { &vertices.to_js() },
+            GL::STATIC_DRAW,
+        );
+
+        let index_buffer = gl.create_buffer();
+        gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, index_buffer.as_ref());
+        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &indices, GL::STATIC_DRAW);
+
+        Self {
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len() as i32,
+        }
+    }
+
     fn bind(&self, gl: &GL) {
         gl.bind_buffer(GL::ARRAY_BUFFER, self.vertex_buffer.as_ref());
         gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, self.index_buffer.as_ref());
@@ -316,6 +451,8 @@ impl Context {
 
         let now = self.performance.now();
         let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
+        transform.append_rotation_mut(&rotation);
+        let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
         transform.append_rotation_mut(&rotation);
 
         self.gl.uniform_matrix4fv_with_f32_array(
