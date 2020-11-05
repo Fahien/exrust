@@ -106,33 +106,33 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
 
 #[repr(C)]
 struct Vertex {
-    position: [f32; 2], // xy
+    position: [f32; 3], // xy
     color: [f32; 4],    // rgba
 }
 
-/// Triangle primitive
-struct Triangle {
+/// Generic primitive geometry
+struct Primitive {
     vertex_buffer: Option<WebGlBuffer>,
     index_buffer: Option<WebGlBuffer>,
     index_count: i32,
 }
 
-impl Triangle {
-    fn new(gl: &GL) -> Self {
+impl Primitive {
+    fn triangle(gl: &GL) -> Self {
         let vertex_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
 
         let vertices: Vec<Vertex> = vec![
             Vertex {
-                position: [-0.5, -0.5],
+                position: [-0.5, -0.5, 0.0],
                 color: [1.0, 1.0, 0.0, 1.0],
             },
             Vertex {
-                position: [0.5, -0.5],
+                position: [0.5, -0.5, 0.0],
                 color: [1.0, 0.0, 1.0, 1.0],
             },
             Vertex {
-                position: [0.0, 0.5],
+                position: [0.0, 0.5, 0.0],
                 color: [0.0, 1.0, 1.0, 1.0],
             },
         ];
@@ -164,7 +164,7 @@ impl Triangle {
 pub struct Context {
     performance: web_sys::Performance,
     gl: WebGlRenderingContext,
-    triangle: Triangle,
+    primitive: Primitive,
     point_program: WebGlProgram,
     triangle_program: WebGlProgram,
 }
@@ -198,7 +198,7 @@ fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
 
 fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
     let vert_source = r#"
-        attribute vec2 in_position;
+        attribute vec3 in_position;
         attribute vec4 in_color;
 
         varying vec4 color;
@@ -207,7 +207,7 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
 
         void main() {
             color = in_color;
-            gl_Position = transform * vec4(in_position, 0.0, 1.0);
+            gl_Position = transform * vec4(in_position, 1.0);
         }
         "#;
 
@@ -234,12 +234,12 @@ impl Context {
         let performance = web_sys::window().unwrap().performance().unwrap();
         let point_program = create_point_program(&gl);
         let triangle_program = create_triangle_program(&gl);
-        let triangle = Triangle::new(&gl);
+        let primitive = Primitive::cube(&gl);
 
         Ok(Context {
             gl,
             performance,
-            triangle,
+            primitive,
             point_program,
             triangle_program,
         })
@@ -268,11 +268,12 @@ impl Context {
         Ok(())
     }
 
-    /// Draws a triangle
+    /// Draws a primitive
     pub fn draw_triangle(&self) -> Result<(), JsValue> {
+        self.gl.enable(GL::DEPTH_TEST);
         self.gl.use_program(Some(&self.triangle_program));
 
-        self.triangle.bind(&self.gl);
+        self.primitive.bind(&self.gl);
 
         let position_loc = self
             .gl
@@ -284,7 +285,7 @@ impl Context {
         let offset = 0;
         self.gl.vertex_attrib_pointer_with_i32(
             position_loc as u32,
-            2,
+            3,
             GL::FLOAT,
             false,
             stride,
@@ -296,7 +297,7 @@ impl Context {
             .gl
             .get_attrib_location(&self.triangle_program, "in_color");
 
-        let offset = 2 * std::mem::size_of::<f32>() as i32;
+        let offset = 3 * std::mem::size_of::<f32>() as i32;
         self.gl.vertex_attrib_pointer_with_i32(
             color_loc as u32,
             4,
@@ -328,7 +329,7 @@ impl Context {
 
         self.gl.draw_elements_with_i32(
             GL::TRIANGLES,
-            self.triangle.index_count,
+            self.primitive.index_count,
             GL::UNSIGNED_BYTE,
             0,
         );
