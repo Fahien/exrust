@@ -1,9 +1,11 @@
 mod utils;
 
+use std::{cell::RefCell, rc::Rc};
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use web_sys::WebGlRenderingContext as GL;
 use web_sys::*;
 
@@ -13,20 +15,28 @@ use web_sys::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 // Wrap web-sys console log function in a println! style macro
 macro_rules! log {
     ( $( $t:tt )* ) => {
-        web_sys::console::log_1(&format!( $( $t )* ).into());
+        log(&format!( $( $t )* ));
     }
 }
 
-trait ToJsFloat32Array {
+trait ToJsArray {
     /// Returns a TypedArray which is a view into this vector.
     /// Please do not reallocate memory while the view is alive or it can become invalid.
     unsafe fn to_js(&self) -> js_sys::Float32Array;
 }
 
-impl ToJsFloat32Array for Vec<Vertex> {
+impl ToJsArray for Vec<Vertex> {
     unsafe fn to_js(&self) -> js_sys::Float32Array {
         let len = self.len() * std::mem::size_of::<Vertex>() / std::mem::size_of::<f32>();
         let floats = std::slice::from_raw_parts(self.as_ptr() as *const f32, len);
@@ -384,10 +394,11 @@ impl Drop for Texture {
 pub struct Context {
     performance: web_sys::Performance,
     gl: WebGlRenderingContext,
-    primitive: Primitive,
-    texture: Texture,
+    view: Rc<RefCell<Isometry3<f32>>>,
     point_program: WebGlProgram,
     triangle_program: WebGlProgram,
+    primitive: Primitive,
+    texture: Texture,
 }
 
 fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
@@ -427,11 +438,12 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         varying vec2 uv;
 
         uniform mat4 transform;
+        uniform mat4 view;
 
         void main() {
             color = in_color;
             uv = in_uv;
-            gl_Position = transform * vec4(in_position, 1.0);
+            gl_Position = view * transform * vec4(in_position, 1.0);
         }
         "#;
 
@@ -457,21 +469,59 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
 #[wasm_bindgen]
 impl Context {
     pub fn new() -> Result<Context, JsValue> {
+        let window = web_sys::window().unwrap();
+        let performance = window.performance().unwrap();
+
         let gl = get_gl_context()?;
-        let performance = web_sys::window().unwrap().performance().unwrap();
+
         let point_program = create_point_program(&gl);
         let triangle_program = create_triangle_program(&gl);
+
+        // OpenGL uses a right-handed coordinate system
+        let view = Rc::new(RefCell::new(Isometry3::look_at_rh(
+            &Point3::new(0.0, 0.0, 0.2),
+            &Point3::origin(),
+            &Vector3::y_axis(),
+        )));
+
         let primitive = Primitive::triangle(&gl);
         let texture = Texture::new(gl.clone());
 
-        Ok(Context {
-            gl,
+        let ret = Context {
             performance,
-            primitive,
-            texture,
+            gl,
+            view,
             point_program,
             triangle_program,
-        })
+            primitive,
+            texture,
+        };
+
+        ret.init();
+
+        Ok(ret)
+    }
+
+    fn init(&self) {
+        let window = web_sys::window().unwrap();
+        let document = window.document().unwrap();
+
+        let view = self.view.clone();
+        let callback = Box::new(move |e: web_sys::MouseEvent| {
+            if e.shift_key() {
+                // Check if left button is pressed
+                if e.buttons() == 1 {
+                    let x = e.movement_x() as f32 / 256.0;
+                    let y = -(e.movement_y() as f32 / 256.0);
+                    view.borrow_mut()
+                        .append_translation_mut(&Translation3::new(x, y, 0.0));
+                }
+            }
+        });
+        let closure =
+            wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::MouseEvent)>);
+        document.set_onmousemove(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
     }
 
     /// Draws a point at position x and y
@@ -564,6 +614,15 @@ impl Context {
             transform_loc.as_ref(),
             false,
             transform.to_homogeneous().as_slice(),
+        );
+
+        // View
+        let view_loc = self.gl.get_uniform_location(&self.triangle_program, "view");
+
+        self.gl.uniform_matrix4fv_with_f32_array(
+            view_loc.as_ref(),
+            false,
+            self.view.borrow().to_homogeneous().as_slice(),
         );
 
         // Texture
