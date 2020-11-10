@@ -506,20 +506,20 @@ impl Context {
             texture,
         };
 
-        ret.init();
+        let document = window.document().unwrap();
+        ret.set_onmousemove(&document);
+        ret.set_onwheel(&document);
 
         Ok(ret)
     }
 
-    fn init(&self) {
-        let window = web_sys::window().unwrap();
-        let document = window.document().unwrap();
-
+    fn set_onmousemove(&self, document: &Document) {
         let view = self.view.clone();
         let callback = Box::new(move |e: web_sys::MouseEvent| {
             if e.shift_key() {
                 // Check if left button is pressed
                 if e.buttons() == 1 {
+                    // Camera panning
                     let x = e.movement_x() as f32 / 256.0;
                     let y = -(e.movement_y() as f32 / 256.0);
                     view.borrow_mut()
@@ -530,6 +530,21 @@ impl Context {
         let closure =
             wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::MouseEvent)>);
         document.set_onmousemove(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
+    }
+
+    fn set_onwheel(&self, document: &Document) {
+        let view = self.view.clone();
+        let callback = Box::new(move |e: web_sys::WheelEvent| {
+            let x = -e.delta_x() as f32 / 256.0;
+            let y = -e.delta_y() as f32 / 256.0;
+                // Camera zoom in/out
+                view.borrow_mut()
+                    .append_translation_mut(&Translation3::new(x, 0.0, y));
+        });
+        let closure =
+            wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::WheelEvent)>);
+        document.set_onwheel(Some(closure.as_ref().unchecked_ref()));
         closure.forget();
     }
 

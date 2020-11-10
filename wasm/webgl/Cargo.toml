@@ -22,7 +22,8 @@ features = [
     "WebGlBuffer",
     "WebGlTexture",
     "KeyboardEvent",
-    "MouseEvent"
+    "MouseEvent",
+    "WheelEvent",
 ]
 
 [features]
