@@ -46,7 +46,7 @@ impl ToJsArray for Vec<Vertex> {
 }
 
 /// Returns a WebGL Context
-fn get_gl_context() -> Result<GL, JsValue> {
+fn get_canvas() -> Result<HtmlCanvasElement, JsValue> {
     utils::set_panic_hook();
 
     let doc = window().unwrap().document().unwrap();
@@ -55,13 +55,18 @@ fn get_gl_context() -> Result<GL, JsValue> {
     canvas.set_width(canvas.client_width() as u32);
     canvas.set_height(canvas.client_height() as u32);
 
+    Ok(canvas)
+}
+
+fn get_gl_context(canvas: &HtmlCanvasElement) -> Result<GL, JsValue> {
     Ok(canvas.get_context("webgl")?.unwrap().dyn_into::<GL>()?)
 }
 
 /// Short WebGL program which simply clears a drawing area specified by a canvas tag
 #[wasm_bindgen]
 pub fn clear_drawing_area() -> Result<(), JsValue> {
-    let gl = get_gl_context()?;
+    let canvas = get_canvas().unwrap();
+    let gl = get_gl_context(&canvas)?;
 
     gl.clear_color(0.0, 0.0, 0.0, 1.0);
     gl.clear(GL::COLOR_BUFFER_BIT);
@@ -197,107 +202,107 @@ impl Primitive {
             // Right
             Vertex {
                 position: [0.5, -0.5, 0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, -0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 1.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 1.0],
             },
             // Back
             Vertex {
                 position: [0.5, -0.5, -0.5],
-                color: [0.0, 1.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, -0.5],
-                color: [0.0, 1.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
-                color: [0.0, 1.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 1.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
-                color: [0.0, 1.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 1.0],
             },
             // Lef
             Vertex {
                 position: [-0.5, -0.5, -0.5],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, 0.5],
-                color: [1.0, 0.0, 1.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, 0.5],
-                color: [1.0, 0.0, 1.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
-                color: [1.0, 0.0, 1.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 1.0],
             },
             // Top
             Vertex {
                 position: [-0.5, 0.5, 0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
-                color: [1.0, 0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 1.0],
             },
             // Bottom
             Vertex {
                 position: [-0.5, -0.5, -0.5],
-                color: [0.0, 1.0, 1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, -0.5],
-                color: [0.0, 1.0, 1.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.5],
-                color: [0.0, 1.0, 1.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, -0.5, 0.5],
-                color: [0.0, 1.0, 1.0, 1.0],
-                uv: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                uv: [0.0, 1.0],
             },
         ];
 
@@ -393,6 +398,7 @@ impl Drop for Texture {
 #[wasm_bindgen]
 pub struct Context {
     performance: web_sys::Performance,
+    canvas: HtmlCanvasElement,
     gl: WebGlRenderingContext,
     view: Rc<RefCell<Isometry3<f32>>>,
     point_program: WebGlProgram,
@@ -439,11 +445,12 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
 
         uniform mat4 transform;
         uniform mat4 view;
+        uniform mat4 proj;
 
         void main() {
             color = in_color;
             uv = in_uv;
-            gl_Position = view * transform * vec4(in_position, 1.0);
+            gl_Position = proj * view * transform * vec4(in_position, 1.0);
         }
         "#;
 
@@ -472,23 +479,25 @@ impl Context {
         let window = web_sys::window().unwrap();
         let performance = window.performance().unwrap();
 
-        let gl = get_gl_context()?;
+        let canvas = get_canvas()?;
+        let gl = get_gl_context(&canvas)?;
 
         let point_program = create_point_program(&gl);
         let triangle_program = create_triangle_program(&gl);
 
         // OpenGL uses a right-handed coordinate system
         let view = Rc::new(RefCell::new(Isometry3::look_at_rh(
-            &Point3::new(0.0, 0.0, 0.2),
+            &Point3::new(0.0, 0.0, 3.0),
             &Point3::origin(),
             &Vector3::y_axis(),
         )));
 
-        let primitive = Primitive::triangle(&gl);
+        let primitive = Primitive::cube(&gl);
         let texture = Texture::new(gl.clone());
 
         let ret = Context {
             performance,
+            canvas,
             gl,
             view,
             point_program,
@@ -623,6 +632,18 @@ impl Context {
             view_loc.as_ref(),
             false,
             self.view.borrow().to_homogeneous().as_slice(),
+        );
+
+        // Proj
+        let proj_loc = self.gl.get_uniform_location(&self.triangle_program, "proj");
+
+        let width = self.canvas.width() as f32;
+        let height = self.canvas.height() as f32;
+        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 8.0);
+        self.gl.uniform_matrix4fv_with_f32_array(
+            proj_loc.as_ref(),
+            false,
+            proj.to_homogeneous().as_slice(),
         );
 
         // Texture
