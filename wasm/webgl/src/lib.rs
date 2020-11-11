@@ -395,6 +395,20 @@ impl Drop for Texture {
     }
 }
 
+struct Node {
+    transform: Isometry3<f32>,
+    primitive: Primitive,
+}
+
+impl Node {
+    fn new(primitive: Primitive) -> Self {
+        Self {
+            transform: Isometry3::identity(),
+            primitive,
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub struct Context {
     performance: web_sys::Performance,
@@ -403,7 +417,7 @@ pub struct Context {
     view: Rc<RefCell<Isometry3<f32>>>,
     point_program: WebGlProgram,
     triangle_program: WebGlProgram,
-    primitive: Primitive,
+    nodes: Vec<Node>,
     texture: Texture,
 }
 
@@ -492,7 +506,23 @@ impl Context {
             &Vector3::y_axis(),
         )));
 
-        let primitive = Primitive::cube(&gl);
+        let mut nodes = vec![];
+
+        let num = 8;
+        for i in -num..num {
+            for j in -num..num {
+                for k in -num..num {
+                    let mut node = Node::new(Primitive::cube(&gl));
+                    node.transform.append_translation_mut(&Translation3::new(
+                        i as f32 * 1.5,
+                        j as f32 * 1.5,
+                        k as f32 * 1.5,
+                    ));
+
+                    nodes.push(node);
+                }
+            }
+        }
         let texture = Texture::new(gl.clone());
 
         let ret = Context {
@@ -502,7 +532,7 @@ impl Context {
             view,
             point_program,
             triangle_program,
-            primitive,
+            nodes,
             texture,
         };
 
@@ -538,9 +568,9 @@ impl Context {
         let callback = Box::new(move |e: web_sys::WheelEvent| {
             let x = -e.delta_x() as f32 / 256.0;
             let y = -e.delta_y() as f32 / 256.0;
-                // Camera zoom in/out
-                view.borrow_mut()
-                    .append_translation_mut(&Translation3::new(x, 0.0, y));
+            // Camera zoom in/out
+            view.borrow_mut()
+                .append_translation_mut(&Translation3::new(x, 0.0, y));
         });
         let closure =
             wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::WheelEvent)>);
@@ -575,8 +605,6 @@ impl Context {
     pub fn draw_primitive(&self) -> Result<(), JsValue> {
         self.gl.enable(GL::DEPTH_TEST);
         self.gl.use_program(Some(&self.triangle_program));
-
-        self.primitive.bind(&self.gl);
 
         // Position
         let position_loc = self
@@ -625,20 +653,6 @@ impl Context {
         let transform_loc = self
             .gl
             .get_uniform_location(&self.triangle_program, "transform");
-        let mut transform = Isometry3::identity();
-        transform.append_translation_mut(&Translation3::new(0.1, -0.1, 0.0));
-
-        let now = self.performance.now();
-        let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
-        transform.append_rotation_mut(&rotation);
-        let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
-        transform.append_rotation_mut(&rotation);
-
-        self.gl.uniform_matrix4fv_with_f32_array(
-            transform_loc.as_ref(),
-            false,
-            transform.to_homogeneous().as_slice(),
-        );
 
         // View
         let view_loc = self.gl.get_uniform_location(&self.triangle_program, "view");
@@ -654,7 +668,7 @@ impl Context {
 
         let width = self.canvas.width() as f32;
         let height = self.canvas.height() as f32;
-        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 8.0);
+        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 256.0);
         self.gl.uniform_matrix4fv_with_f32_array(
             proj_loc.as_ref(),
             false,
@@ -671,12 +685,33 @@ impl Context {
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
 
-        self.gl.draw_elements_with_i32(
-            GL::TRIANGLES,
-            self.primitive.index_count,
-            GL::UNSIGNED_BYTE,
-            0,
-        );
+        // Time
+        let now = self.performance.now();
+
+        // Draw all nodes
+        for node in &self.nodes {
+            node.primitive.bind(&self.gl);
+
+            let mut transform = node.transform.clone();
+
+            let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
+            transform.append_rotation_mut(&rotation);
+            let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
+            transform.append_rotation_mut(&rotation);
+
+            self.gl.uniform_matrix4fv_with_f32_array(
+                transform_loc.as_ref(),
+                false,
+                transform.to_homogeneous().as_slice(),
+            );
+
+            self.gl.draw_elements_with_i32(
+                GL::TRIANGLES,
+                node.primitive.index_count,
+                GL::UNSIGNED_BYTE,
+                0,
+            );
+        }
 
         Ok(())
     }
