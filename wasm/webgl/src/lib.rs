@@ -123,6 +123,7 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
 struct Vertex {
     position: [f32; 3], // xy
     color: [f32; 4],    // rgba
+    normal: [f32; 3],
     uv: [f32; 2],
 }
 
@@ -142,16 +143,19 @@ impl Primitive {
             Vertex {
                 position: [-0.5, -0.5, 0.0],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.0],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.0, 0.5, 0.0],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [0.5, 1.0],
             },
         ];
@@ -182,126 +186,150 @@ impl Primitive {
             Vertex {
                 position: [-0.5, -0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, 0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
                 uv: [0.0, 1.0],
             },
             // Right
             Vertex {
                 position: [0.5, -0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [1.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [1.0, 0.0, 0.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [1.0, 0.0, 0.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [1.0, 0.0, 0.0],
                 uv: [0.0, 1.0],
             },
             // Back
             Vertex {
                 position: [0.5, -0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, -1.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, -1.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, -1.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, -1.0],
                 uv: [0.0, 1.0],
             },
-            // Lef
+            // Left
             Vertex {
                 position: [-0.5, -0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [-1.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [-0.5, -0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [-1.0, 0.0, 0.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [-0.5, 0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [-1.0, 0.0, 0.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [-1.0, 0.0, 0.0],
                 uv: [0.0, 1.0],
             },
             // Top
             Vertex {
                 position: [-0.5, 0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 1.0, 0.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 1.0, 0.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, 0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 1.0, 0.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, 0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 1.0, 0.0],
                 uv: [0.0, 1.0],
             },
             // Bottom
             Vertex {
                 position: [-0.5, -0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, -1.0, 0.0],
                 uv: [0.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, -0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, -1.0, 0.0],
                 uv: [1.0, 0.0],
             },
             Vertex {
                 position: [0.5, -0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, -1.0, 0.0],
                 uv: [1.0, 1.0],
             },
             Vertex {
                 position: [-0.5, -0.5, 0.5],
                 color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, -1.0, 0.0],
                 uv: [0.0, 1.0],
             },
         ];
@@ -452,19 +480,30 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
     let vert_source = r#"
         attribute vec3 in_position;
         attribute vec4 in_color;
+        attribute vec3 in_normal;
         attribute vec2 in_uv;
 
         varying vec4 color;
         varying vec2 uv;
 
         uniform mat4 transform;
+        uniform mat4 normal_transform;
         uniform mat4 view;
         uniform mat4 proj;
 
+        uniform vec3 light_color;
+        // Unit vector which goes from the surface to the light source
+        uniform vec3 light_direction;
+
         void main() {
-            color = in_color;
             uv = in_uv;
             gl_Position = proj * view * transform * vec4(in_position, 1.0);
+
+            vec3 normal = mat3(normal_transform) * normalize(in_normal);
+            float n_dot_l = max(dot(normalize(light_direction), normal), 0.0);
+            vec3 diffuse = light_color * vec3(in_color) * n_dot_l;
+            vec3 ambient = light_color * vec3(in_color) * 0.1;
+            color = vec4(diffuse + ambient, in_color.a);
         }
         "#;
 
@@ -508,7 +547,7 @@ impl Context {
 
         let mut nodes = vec![];
 
-        let num = 8;
+        let num = 1;
         for i in -num..num {
             for j in -num..num {
                 for k in -num..num {
@@ -642,9 +681,25 @@ impl Context {
         );
         self.gl.enable_vertex_attrib_array(color_loc as u32);
 
+        // Normal
+        let normal_loc = self
+            .gl
+            .get_attrib_location(&self.triangle_program, "in_normal");
+
+        let offset = 7 * std::mem::size_of::<f32>() as i32;
+        self.gl.vertex_attrib_pointer_with_i32(
+            normal_loc as u32,
+            3,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.gl.enable_vertex_attrib_array(normal_loc as u32);
+
         // Texture coordinates
         let uv_loc = self.gl.get_attrib_location(&self.triangle_program, "in_uv");
-        let offset = 7 * std::mem::size_of::<f32>() as i32;
+        let offset = 10 * std::mem::size_of::<f32>() as i32;
         self.gl
             .vertex_attrib_pointer_with_i32(uv_loc as u32, 2, GL::FLOAT, false, stride, offset);
         self.gl.enable_vertex_attrib_array(uv_loc as u32);
@@ -653,6 +708,10 @@ impl Context {
         let transform_loc = self
             .gl
             .get_uniform_location(&self.triangle_program, "transform");
+        // Normal Transform
+        let normal_transform_loc = self
+            .gl
+            .get_uniform_location(&self.triangle_program, "normal_transform");
 
         // View
         let view_loc = self.gl.get_uniform_location(&self.triangle_program, "view");
@@ -674,6 +733,18 @@ impl Context {
             false,
             proj.to_homogeneous().as_slice(),
         );
+
+        // Lighting
+        let light_color_loc = self
+            .gl
+            .get_uniform_location(&self.triangle_program, "light_color");
+        self.gl.uniform3f(light_color_loc.as_ref(), 1.0, 1.0, 1.0);
+
+        let light_direction_loc = self
+            .gl
+            .get_uniform_location(&self.triangle_program, "light_direction");
+        self.gl
+            .uniform3f(light_direction_loc.as_ref(), 1.0, 1.0, 1.0);
 
         // Texture
         self.texture.bind();
@@ -703,6 +774,13 @@ impl Context {
                 transform_loc.as_ref(),
                 false,
                 transform.to_homogeneous().as_slice(),
+            );
+
+            let normal_transform = transform.inverse().to_homogeneous().transpose();
+            self.gl.uniform_matrix4fv_with_f32_array(
+                normal_transform_loc.as_ref(),
+                false,
+                normal_transform.as_slice(),
             );
 
             self.gl.draw_elements_with_i32(
