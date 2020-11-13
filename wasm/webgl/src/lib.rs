@@ -483,7 +483,9 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         attribute vec3 in_normal;
         attribute vec2 in_uv;
 
+        varying vec3 position;
         varying vec4 color;
+        varying vec3 normal;
         varying vec2 uv;
 
         uniform mat4 transform;
@@ -491,32 +493,40 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         uniform mat4 view;
         uniform mat4 proj;
 
-        uniform vec3 light_color;
-        // Unit vector which goes from the surface to the light source
-        uniform vec3 light_direction;
-
         void main() {
             uv = in_uv;
-            gl_Position = proj * view * transform * vec4(in_position, 1.0);
-
-            vec3 normal = mat3(normal_transform) * normalize(in_normal);
-            float n_dot_l = max(dot(normalize(light_direction), normal), 0.0);
-            vec3 diffuse = light_color * vec3(in_color) * n_dot_l;
-            vec3 ambient = light_color * vec3(in_color) * 0.1;
-            color = vec4(diffuse + ambient, in_color.a);
+            vec4 pos4 = view * transform * vec4(in_position, 1.0);
+            position = pos4.xyz;
+            gl_Position = proj * pos4;
+            normal = mat3(normal_transform) * normalize(in_normal);
+            color = in_color;
         }
         "#;
 
     let frag_source = r#"
         precision mediump float;
 
+        varying vec3 position;
         varying vec4 color;
+        varying vec3 normal;
         varying vec2 uv;
 
         uniform sampler2D sampler;
+        uniform vec3 light_color;
+        uniform vec3 light_position;
 
         void main() {
-            gl_FragColor = color * texture2D(sampler, uv);
+            vec3 light_direction = light_position - position;
+            float n_dot_l = max(
+                dot(
+                    normalize(light_direction),
+                    normalize(normal)
+                ),
+                0.0
+            );
+            vec3 diffuse = light_color * vec3(color) * n_dot_l;
+            vec3 ambient = light_color * vec3(color) * 0.1;
+            gl_FragColor = vec4(diffuse + ambient, color.a) * texture2D(sampler, uv);
         }
         "#;
 
@@ -740,11 +750,11 @@ impl Context {
             .get_uniform_location(&self.triangle_program, "light_color");
         self.gl.uniform3f(light_color_loc.as_ref(), 1.0, 1.0, 1.0);
 
-        let light_direction_loc = self
+        let light_position_loc = self
             .gl
-            .get_uniform_location(&self.triangle_program, "light_direction");
+            .get_uniform_location(&self.triangle_program, "light_position");
         self.gl
-            .uniform3f(light_direction_loc.as_ref(), 1.0, 1.0, 1.0);
+            .uniform3f(light_position_loc.as_ref(), 4.0, 1.0, 1.0);
 
         // Texture
         self.texture.bind();
