@@ -40,7 +40,6 @@ impl ToJsArray for Vec<Vertex> {
     unsafe fn to_js(&self) -> js_sys::Float32Array {
         let len = self.len() * std::mem::size_of::<Vertex>() / std::mem::size_of::<f32>();
         let floats = std::slice::from_raw_parts(self.as_ptr() as *const f32, len);
-        log!("Vertices: {:?}", floats);
         js_sys::Float32Array::view(floats)
     }
 }
@@ -75,7 +74,7 @@ pub fn clear_drawing_area() -> Result<(), JsValue> {
 }
 
 /// Compiles source code into a shader object
-pub fn compile_shader(gl: &GL, shader_type: u32, source: &str) -> WebGlShader {
+fn compile_shader(gl: &GL, shader_type: u32, source: &str) -> WebGlShader {
     let shader = gl.create_shader(shader_type).unwrap();
     gl.shader_source(&shader, source);
     gl.compile_shader(&shader);
@@ -117,6 +116,152 @@ fn link_program(gl: &GL, vert: WebGlShader, frag: WebGlShader) -> WebGlProgram {
     gl.delete_shader(Some(&frag));
 
     program
+}
+
+struct Program {
+    gl: GL,
+    program: WebGlProgram,
+}
+
+impl Program {
+    fn new(gl: GL, vert_src: &str, frag_src: &str) -> Self {
+        let vert_shader = compile_shader(&gl, GL::VERTEX_SHADER, vert_src);
+        let frag_shader = compile_shader(&gl, GL::FRAGMENT_SHADER, frag_src);
+
+        let program = link_program(&gl, vert_shader, frag_shader);
+
+        Self { gl, program }
+    }
+
+    fn bind(&self) {
+        self.gl.use_program(Some(&self.program));
+    }
+
+    fn get_attrib_loc(&self, name: &str) -> i32 {
+        self.gl.get_attrib_location(&self.program, name)
+    }
+
+    fn get_uniform_loc(&self, name: &str) -> Option<WebGlUniformLocation> {
+        self.gl.get_uniform_location(&self.program, name)
+    }
+}
+
+impl Drop for Program {
+    fn drop(&mut self) {
+        self.gl.delete_program(Some(&self.program));
+    }
+}
+
+struct PointPipeline {
+    program: Program,
+    position_loc: i32,
+    point_size_loc: i32,
+    color_loc: Option<WebGlUniformLocation>,
+}
+
+impl PointPipeline {
+    fn new(gl: &GL, vert_src: &str, frag_src: &str) -> Self {
+        let program = Program::new(gl.clone(), vert_src, frag_src);
+        program.bind();
+
+        let position_loc = program.get_attrib_loc("position");
+        let point_size_loc = program.get_attrib_loc("point_size");
+        let color_loc = program.get_uniform_loc("color");
+
+        Self {
+            program,
+            position_loc,
+            point_size_loc,
+            color_loc,
+        }
+    }
+}
+
+struct DefaultPipeline {
+    program: Program,
+    transform_loc: Option<WebGlUniformLocation>,
+    normal_transform_loc: Option<WebGlUniformLocation>,
+}
+
+impl DefaultPipeline {
+    fn new(gl: &GL, vert_src: &str, frag_src: &str) -> Self {
+        let program = Program::new(gl.clone(), vert_src, frag_src);
+        program.bind();
+
+        let transform_loc = program.get_uniform_loc("transform");
+        let normal_transform_loc = program.get_uniform_loc("normal_transform");
+
+        Self {
+            program,
+            transform_loc,
+            normal_transform_loc,
+        }
+    }
+
+    fn bind_attribs(&self) {
+        // Position
+        let position_loc = self.program.get_attrib_loc("in_position");
+
+        // Number of bytes between each vertex element
+        let stride = std::mem::size_of::<Vertex>() as i32;
+        // Offset of vertex data from the beginning of the buffer
+        let offset = 0;
+
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            position_loc as u32,
+            3,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(position_loc as u32);
+
+        // Color
+        let color_loc = self.program.get_attrib_loc("in_color");
+
+        let offset = 3 * std::mem::size_of::<f32>() as i32;
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            color_loc as u32,
+            4,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program.gl.enable_vertex_attrib_array(color_loc as u32);
+
+        // Normal
+        let normal_loc = self.program.get_attrib_loc("in_normal");
+
+        let offset = 7 * std::mem::size_of::<f32>() as i32;
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            normal_loc as u32,
+            3,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(normal_loc as u32);
+
+        // Texture coordinates
+        let uv_loc = self.program.get_attrib_loc("in_uv");
+        let offset = 10 * std::mem::size_of::<f32>() as i32;
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            uv_loc as u32,
+            2,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program.gl.enable_vertex_attrib_array(uv_loc as u32);
+    }
 }
 
 #[repr(C)]
@@ -443,14 +588,14 @@ pub struct Context {
     canvas: HtmlCanvasElement,
     gl: WebGlRenderingContext,
     view: Rc<RefCell<Isometry3<f32>>>,
-    point_program: WebGlProgram,
-    triangle_program: WebGlProgram,
+    point_pipeline: PointPipeline,
+    default_pipeline: DefaultPipeline,
     nodes: Vec<Node>,
     texture: Texture,
 }
 
-fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
-    let vert_source = r#"
+fn create_point_program(gl: &WebGlRenderingContext) -> PointPipeline {
+    let vert_src = r#"
         attribute vec2 position;
         attribute float point_size;
 
@@ -460,7 +605,7 @@ fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         }
         "#;
 
-    let frag_source = r#"
+    let frag_src = r#"
         precision mediump float;
 
         uniform vec4 color;
@@ -470,14 +615,11 @@ fn create_point_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         }
         "#;
 
-    let vert_shader = compile_shader(gl, GL::VERTEX_SHADER, vert_source);
-    let frag_shader = compile_shader(gl, GL::FRAGMENT_SHADER, frag_source);
-
-    link_program(gl, vert_shader, frag_shader)
+    PointPipeline::new(gl, vert_src, frag_src)
 }
 
-fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
-    let vert_source = r#"
+fn create_default_program(gl: &WebGlRenderingContext) -> DefaultPipeline {
+    let vert_src = r#"
         attribute vec3 in_position;
         attribute vec4 in_color;
         attribute vec3 in_normal;
@@ -503,7 +645,7 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         }
         "#;
 
-    let frag_source = r#"
+    let frag_src = r#"
         precision mediump float;
 
         varying vec3 position;
@@ -530,10 +672,7 @@ fn create_triangle_program(gl: &WebGlRenderingContext) -> WebGlProgram {
         }
         "#;
 
-    let vert_shader = compile_shader(gl, GL::VERTEX_SHADER, vert_source);
-    let frag_shader = compile_shader(gl, GL::FRAGMENT_SHADER, frag_source);
-
-    link_program(gl, vert_shader, frag_shader)
+    DefaultPipeline::new(gl, vert_src, frag_src)
 }
 
 #[wasm_bindgen]
@@ -545,12 +684,12 @@ impl Context {
         let canvas = get_canvas()?;
         let gl = get_gl_context(&canvas)?;
 
-        let point_program = create_point_program(&gl);
-        let triangle_program = create_triangle_program(&gl);
+        let point_pipeline = create_point_program(&gl);
+        let default_pipeline = create_default_program(&gl);
 
         // OpenGL uses a right-handed coordinate system
         let view = Rc::new(RefCell::new(Isometry3::look_at_rh(
-            &Point3::new(0.0, 0.0, 3.0),
+            &Point3::new(0.0, 0.0, 12.0),
             &Point3::origin(),
             &Vector3::y_axis(),
         )));
@@ -579,8 +718,8 @@ impl Context {
             canvas,
             gl,
             view,
-            point_program,
-            triangle_program,
+            point_pipeline,
+            default_pipeline,
             nodes,
             texture,
         };
@@ -629,18 +768,14 @@ impl Context {
 
     /// Draws a point at position x and y
     pub fn draw_point(&self, x: f32, y: f32) -> Result<(), JsValue> {
-        self.gl.use_program(Some(&self.point_program));
+        self.point_pipeline.program.bind();
 
-        let position_loc = self.gl.get_attrib_location(&self.point_program, "position");
-        self.gl.vertex_attrib3f(position_loc as u32, x, y, 0.0);
-
-        let point_size_loc = self
-            .gl
-            .get_attrib_location(&self.point_program, "point_size");
-        self.gl.vertex_attrib1f(point_size_loc as u32, 16.0);
-
-        let color_loc = self.gl.get_uniform_location(&self.point_program, "color");
-        self.gl.uniform4f(color_loc.as_ref(), 0.0, 1.0, 0.0, 1.0);
+        self.gl
+            .vertex_attrib1f(self.point_pipeline.point_size_loc as u32, 16.0);
+        self.gl
+            .vertex_attrib3f(self.point_pipeline.position_loc as u32, x, y, 0.0);
+        self.gl
+            .uniform4f(self.point_pipeline.color_loc.as_ref(), 0.0, 1.0, 0.0, 1.0);
 
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
@@ -653,78 +788,10 @@ impl Context {
     /// Draws a primitive
     pub fn draw_primitive(&self) -> Result<(), JsValue> {
         self.gl.enable(GL::DEPTH_TEST);
-        self.gl.use_program(Some(&self.triangle_program));
-
-        // Position
-        let position_loc = self
-            .gl
-            .get_attrib_location(&self.triangle_program, "in_position");
-
-        // Number of bytes between each vertex element
-        let stride = std::mem::size_of::<Vertex>() as i32;
-        // Offset of vertex data from the beginning of the buffer
-        let offset = 0;
-
-        self.gl.vertex_attrib_pointer_with_i32(
-            position_loc as u32,
-            3,
-            GL::FLOAT,
-            false,
-            stride,
-            offset,
-        );
-        self.gl.enable_vertex_attrib_array(position_loc as u32);
-
-        // Color
-        let color_loc = self
-            .gl
-            .get_attrib_location(&self.triangle_program, "in_color");
-
-        let offset = 3 * std::mem::size_of::<f32>() as i32;
-        self.gl.vertex_attrib_pointer_with_i32(
-            color_loc as u32,
-            4,
-            GL::FLOAT,
-            false,
-            stride,
-            offset,
-        );
-        self.gl.enable_vertex_attrib_array(color_loc as u32);
-
-        // Normal
-        let normal_loc = self
-            .gl
-            .get_attrib_location(&self.triangle_program, "in_normal");
-
-        let offset = 7 * std::mem::size_of::<f32>() as i32;
-        self.gl.vertex_attrib_pointer_with_i32(
-            normal_loc as u32,
-            3,
-            GL::FLOAT,
-            false,
-            stride,
-            offset,
-        );
-        self.gl.enable_vertex_attrib_array(normal_loc as u32);
-
-        // Texture coordinates
-        let uv_loc = self.gl.get_attrib_location(&self.triangle_program, "in_uv");
-        let offset = 10 * std::mem::size_of::<f32>() as i32;
-        self.gl
-            .vertex_attrib_pointer_with_i32(uv_loc as u32, 2, GL::FLOAT, false, stride, offset);
-        self.gl.enable_vertex_attrib_array(uv_loc as u32);
-
-        // Transform
-        let transform_loc = self
-            .gl
-            .get_uniform_location(&self.triangle_program, "transform");
-        // Normal Transform
-        let normal_transform_loc = self
-            .gl
-            .get_uniform_location(&self.triangle_program, "normal_transform");
+        self.default_pipeline.program.bind();
 
         // View
-        let view_loc = self.gl.get_uniform_location(&self.triangle_program, "view");
+        let view_loc = self.default_pipeline.program.get_uniform_loc("view");
 
         self.gl.uniform_matrix4fv_with_f32_array(
             view_loc.as_ref(),
@@ -733,7 +800,7 @@ impl Context {
         );
 
         // Proj
-        let proj_loc = self.gl.get_uniform_location(&self.triangle_program, "proj");
+        let proj_loc = self.default_pipeline.program.get_uniform_loc("proj");
 
         let width = self.canvas.width() as f32;
         let height = self.canvas.height() as f32;
@@ -745,22 +812,19 @@ impl Context {
         );
 
         // Lighting
-        let light_color_loc = self
-            .gl
-            .get_uniform_location(&self.triangle_program, "light_color");
+        let light_color_loc = self.default_pipeline.program.get_uniform_loc("light_color");
         self.gl.uniform3f(light_color_loc.as_ref(), 1.0, 1.0, 1.0);
 
         let light_position_loc = self
-            .gl
-            .get_uniform_location(&self.triangle_program, "light_position");
+            .default_pipeline
+            .program
+            .get_uniform_loc("light_position");
         self.gl
             .uniform3f(light_position_loc.as_ref(), 4.0, 1.0, 1.0);
 
         // Texture
         self.texture.bind();
-        let sampler_loc = self
-            .gl
-            .get_uniform_location(&self.triangle_program, "sampler");
+        let sampler_loc = self.default_pipeline.program.get_uniform_loc("sampler");
         self.gl.uniform1i(sampler_loc.as_ref(), 0);
 
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
@@ -772,6 +836,7 @@ impl Context {
         // Draw all nodes
         for node in &self.nodes {
             node.primitive.bind(&self.gl);
+            self.default_pipeline.bind_attribs();
 
             let mut transform = node.transform.clone();
 
@@ -781,14 +846,14 @@ impl Context {
             transform.append_rotation_mut(&rotation);
 
             self.gl.uniform_matrix4fv_with_f32_array(
-                transform_loc.as_ref(),
+                self.default_pipeline.transform_loc.as_ref(),
                 false,
                 transform.to_homogeneous().as_slice(),
             );
 
             let normal_transform = transform.inverse().to_homogeneous().transpose();
             self.gl.uniform_matrix4fv_with_f32_array(
-                normal_transform_loc.as_ref(),
+                self.default_pipeline.normal_transform_loc.as_ref(),
                 false,
                 normal_transform.as_slice(),
             );
