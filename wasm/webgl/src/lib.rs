@@ -571,6 +571,7 @@ impl Drop for Texture {
 struct Node {
     transform: Isometry3<f32>,
     primitive: Primitive,
+    children: Vec<Node>,
 }
 
 impl Node {
@@ -578,6 +579,7 @@ impl Node {
         Self {
             transform: Isometry3::identity(),
             primitive,
+            children: vec![],
         }
     }
 }
@@ -696,21 +698,25 @@ impl Context {
 
         let mut nodes = vec![];
 
-        let num = 1;
-        for i in -num..num {
-            for j in -num..num {
-                for k in -num..num {
-                    let mut node = Node::new(Primitive::cube(&gl));
-                    node.transform.append_translation_mut(&Translation3::new(
-                        i as f32 * 1.5,
-                        j as f32 * 1.5,
-                        k as f32 * 1.5,
-                    ));
+        let mut root = Node::new(Primitive::cube(&gl));
+        root.transform
+            .append_translation_mut(&Translation3::new(0.0, 1.0, 0.0));
 
-                    nodes.push(node);
-                }
-            }
-        }
+        let mut node_right = Node::new(Primitive::cube(&gl));
+        node_right
+            .transform
+            .append_translation_mut(&Translation3::new(1.5, 0.0, 0.0));
+
+        let mut node_left = Node::new(Primitive::cube(&gl));
+        node_left
+            .transform
+            .append_translation_mut(&Translation3::new(-1.5, 0.0, 0.0));
+
+        root.children.push(node_right);
+        root.children.push(node_left);
+
+        nodes.push(root);
+
         let texture = Texture::new(gl.clone());
 
         let ret = Context {
@@ -833,39 +839,50 @@ impl Context {
         // Time
         let now = self.performance.now();
 
+        let mut transform = Isometry3::<f32>::identity();
+        let rotation =
+            UnitQuaternion::<f32>::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
+        transform.append_rotation_mut(&rotation);
+        let rotation =
+            UnitQuaternion::<f32>::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
+        transform.append_rotation_mut(&rotation);
+
         // Draw all nodes
         for node in &self.nodes {
-            node.primitive.bind(&self.gl);
-            self.default_pipeline.bind_attribs();
-
-            let mut transform = node.transform.clone();
-
-            let rotation = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
-            transform.append_rotation_mut(&rotation);
-            let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
-            transform.append_rotation_mut(&rotation);
-
-            self.gl.uniform_matrix4fv_with_f32_array(
-                self.default_pipeline.transform_loc.as_ref(),
-                false,
-                transform.to_homogeneous().as_slice(),
-            );
-
-            let normal_transform = transform.inverse().to_homogeneous().transpose();
-            self.gl.uniform_matrix4fv_with_f32_array(
-                self.default_pipeline.normal_transform_loc.as_ref(),
-                false,
-                normal_transform.as_slice(),
-            );
-
-            self.gl.draw_elements_with_i32(
-                GL::TRIANGLES,
-                node.primitive.index_count,
-                GL::UNSIGNED_BYTE,
-                0,
-            );
+            self.draw_node(now as f32, &node, &transform);
         }
 
         Ok(())
+    }
+
+    fn draw_node(&self, now: f32, node: &Node, parent_trs: &Isometry3<f32>) {
+        node.primitive.bind(&self.gl);
+        self.default_pipeline.bind_attribs();
+
+        let transform = parent_trs * node.transform;
+
+        self.gl.uniform_matrix4fv_with_f32_array(
+            self.default_pipeline.transform_loc.as_ref(),
+            false,
+            transform.to_homogeneous().as_slice(),
+        );
+
+        let normal_transform = transform.inverse().to_homogeneous().transpose();
+        self.gl.uniform_matrix4fv_with_f32_array(
+            self.default_pipeline.normal_transform_loc.as_ref(),
+            false,
+            normal_transform.as_slice(),
+        );
+
+        self.gl.draw_elements_with_i32(
+            GL::TRIANGLES,
+            node.primitive.index_count,
+            GL::UNSIGNED_BYTE,
+            0,
+        );
+
+        for child in &node.children {
+            self.draw_node(now, child, &transform);
+        }
     }
 }
