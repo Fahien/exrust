@@ -700,7 +700,7 @@ impl Context {
 
         let mut root = Node::new(Primitive::cube(&gl));
         root.transform
-            .append_translation_mut(&Translation3::new(0.0, 1.0, 0.0));
+            .append_translation_mut(&Translation3::new(0.0, 0.0, 0.0));
 
         let mut node_right = Node::new(Primitive::cube(&gl));
         node_right
@@ -740,15 +740,29 @@ impl Context {
     fn set_onmousemove(&self, document: &Document) {
         let view = self.view.clone();
         let callback = Box::new(move |e: web_sys::MouseEvent| {
+            const MOUSE_LEFT: u16 = 1;
+            const MOUSE_MIDDLE: u16 = 4;
+
             if e.shift_key() {
                 // Check if left button is pressed
-                if e.buttons() == 1 {
+                if e.buttons() == MOUSE_LEFT {
                     // Camera panning
                     let x = e.movement_x() as f32 / 256.0;
                     let y = -(e.movement_y() as f32 / 256.0);
                     view.borrow_mut()
                         .append_translation_mut(&Translation3::new(x, y, 0.0));
                 }
+            }
+
+            // Camera orbiting
+            if e.buttons() == MOUSE_MIDDLE {
+                let x = e.movement_x() as f32 / 256.0;
+                let y = -(e.movement_y() as f32 / 256.0);
+
+                let rotation = UnitQuaternion::<f32>::from_axis_angle(&Vector3::y_axis(), x);
+                let rotation =
+                    rotation * UnitQuaternion::<f32>::from_axis_angle(&Vector3::x_axis(), y);
+                view.borrow_mut().append_rotation_wrt_center_mut(&rotation);
             }
         });
         let closure =
