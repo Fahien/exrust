@@ -264,6 +264,58 @@ impl DefaultPipeline {
     }
 }
 
+type Color = [u8; 3];
+use std::collections::HashMap;
+
+struct SelectPipeline {
+    program: Program,
+    transform_loc: Option<WebGlUniformLocation>,
+    color_loc: Option<WebGlUniformLocation>,
+
+    node_colors: HashMap<u32, Color>,
+}
+
+impl SelectPipeline {
+    fn new(gl: &GL) -> SelectPipeline {
+        let vert_src = include_str!("../res/shader/select.vert.glsl");
+        let frag_src = include_str!("../res/shader/select.frag.glsl");
+        let program = Program::new(gl.clone(), vert_src, frag_src);
+        program.bind();
+
+        let transform_loc = program.get_uniform_loc("transform");
+        let color_loc = program.get_uniform_loc("color");
+
+        Self {
+            program,
+            transform_loc,
+            color_loc,
+            node_colors: HashMap::new(),
+        }
+    }
+
+    fn bind_attribs(&self) {
+        // Position
+        let position_loc = self.program.get_attrib_loc("in_position");
+
+        // Number of bytes between each vertex element
+        let stride = std::mem::size_of::<Vertex>() as i32;
+        // Offset of vertex data from the beginning of the buffer
+        let offset = 0;
+
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            position_loc as u32,
+            3,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(position_loc as u32);
+    }
+}
+
 #[repr(C)]
 struct Vertex {
     position: [f32; 3], // xy
@@ -569,6 +621,7 @@ impl Drop for Texture {
 }
 
 struct Node {
+    id: u32,
     transform: Isometry3<f32>,
     primitive: Primitive,
     children: Vec<Node>,
@@ -577,9 +630,28 @@ struct Node {
 impl Node {
     fn new(primitive: Primitive) -> Self {
         Self {
+            id: 0,
             transform: Isometry3::identity(),
             primitive,
             children: vec![],
+        }
+    }
+}
+
+struct Mouse {
+    x: u32,
+    y: u32,
+    clicked: bool,
+    selected_node: Option<u32>,
+}
+
+impl Mouse {
+    fn new() -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            clicked: false,
+            selected_node: None,
         }
     }
 }
@@ -590,8 +662,13 @@ pub struct Context {
     canvas: HtmlCanvasElement,
     gl: WebGlRenderingContext,
     view: Rc<RefCell<Isometry3<f32>>>,
+    mouse: Rc<RefCell<Mouse>>,
+    offscreen_framebuffer: Option<WebGlFramebuffer>,
+    offscreen_colorbuffer: Option<WebGlRenderbuffer>,
+    offscreen_depthbuffer: Option<WebGlRenderbuffer>,
     point_pipeline: PointPipeline,
     default_pipeline: DefaultPipeline,
+    select_pipeline: SelectPipeline,
     nodes: Vec<Node>,
     texture: Texture,
 }
@@ -655,6 +732,7 @@ fn create_default_program(gl: &WebGlRenderingContext) -> DefaultPipeline {
         varying vec3 normal;
         varying vec2 uv;
 
+        uniform vec4 select_color;
         uniform sampler2D sampler;
         uniform vec3 light_color;
         uniform vec3 light_position;
@@ -670,11 +748,26 @@ fn create_default_program(gl: &WebGlRenderingContext) -> DefaultPipeline {
             );
             vec3 diffuse = light_color * vec3(color) * n_dot_l;
             vec3 ambient = light_color * vec3(color) * 0.1;
-            gl_FragColor = vec4(diffuse + ambient, color.a) * texture2D(sampler, uv);
+            gl_FragColor = select_color + vec4(diffuse + ambient, color.a) * texture2D(sampler, uv);
         }
         "#;
 
     DefaultPipeline::new(gl, vert_src, frag_src)
+}
+
+use rand::Rng;
+
+fn generate_node_colors(
+    select_pipeline: &mut SelectPipeline,
+    rng: &mut rand::rngs::ThreadRng,
+    node: &Node,
+) {
+    let color: Color = [rng.gen(), rng.gen(), rng.gen()];
+    select_pipeline.node_colors.insert(node.id, color);
+
+    for child in &node.children {
+        generate_node_colors(select_pipeline, rng, child);
+    }
 }
 
 #[wasm_bindgen]
@@ -686,8 +779,44 @@ impl Context {
         let canvas = get_canvas()?;
         let gl = get_gl_context(&canvas)?;
 
+        let offscreen_framebuffer = gl.create_framebuffer();
+        gl.bind_framebuffer(GL::FRAMEBUFFER, offscreen_framebuffer.as_ref());
+
+        let offscreen_colorbuffer = gl.create_renderbuffer();
+        gl.bind_renderbuffer(GL::RENDERBUFFER, offscreen_colorbuffer.as_ref());
+        gl.renderbuffer_storage(
+            GL::RENDERBUFFER,
+            GL::RGBA4,
+            canvas.width() as i32,
+            canvas.height() as i32,
+        );
+        gl.framebuffer_renderbuffer(
+            GL::FRAMEBUFFER,
+            GL::COLOR_ATTACHMENT0,
+            GL::RENDERBUFFER,
+            offscreen_colorbuffer.as_ref(),
+        );
+
+        let offscreen_depthbuffer = gl.create_renderbuffer();
+        gl.bind_renderbuffer(GL::RENDERBUFFER, offscreen_depthbuffer.as_ref());
+        gl.renderbuffer_storage(
+            GL::RENDERBUFFER,
+            GL::DEPTH_COMPONENT16,
+            canvas.width() as i32,
+            canvas.height() as i32,
+        );
+        gl.framebuffer_renderbuffer(
+            GL::FRAMEBUFFER,
+            GL::DEPTH_ATTACHMENT,
+            GL::RENDERBUFFER,
+            offscreen_depthbuffer.as_ref(),
+        );
+
+        gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+
         let point_pipeline = create_point_program(&gl);
         let default_pipeline = create_default_program(&gl);
+        let mut select_pipeline = SelectPipeline::new(&gl);
 
         // OpenGL uses a right-handed coordinate system
         let view = Rc::new(RefCell::new(Isometry3::look_at_rh(
@@ -703,17 +832,23 @@ impl Context {
             .append_translation_mut(&Translation3::new(0.0, 0.0, 0.0));
 
         let mut node_right = Node::new(Primitive::cube(&gl));
+        node_right.id = 1;
         node_right
             .transform
             .append_translation_mut(&Translation3::new(1.5, 0.0, 0.0));
 
         let mut node_left = Node::new(Primitive::cube(&gl));
+        node_left.id = 2;
         node_left
             .transform
             .append_translation_mut(&Translation3::new(-1.5, 0.0, 0.0));
 
         root.children.push(node_right);
         root.children.push(node_left);
+
+        // Create select color for each node
+        let mut rng = rand::thread_rng();
+        generate_node_colors(&mut select_pipeline, &mut rng, &root);
 
         nodes.push(root);
 
@@ -724,8 +859,13 @@ impl Context {
             canvas,
             gl,
             view,
+            mouse: Rc::new(RefCell::new(Mouse::new())),
+            offscreen_framebuffer,
+            offscreen_colorbuffer,
+            offscreen_depthbuffer,
             point_pipeline,
             default_pipeline,
+            select_pipeline,
             nodes,
             texture,
         };
@@ -733,6 +873,7 @@ impl Context {
         let document = window.document().unwrap();
         ret.set_onmousemove(&document);
         ret.set_onwheel(&document);
+        ret.set_onmouseclick(&document);
 
         Ok(ret)
     }
@@ -786,6 +927,30 @@ impl Context {
         closure.forget();
     }
 
+    fn set_onmouseclick(&self, document: &Document) {
+        let mouse = self.mouse.clone();
+
+        let callback = Box::new(move |e: web_sys::MouseEvent| {
+            let (x, y) = (e.client_x() as u32, e.client_y() as u32);
+
+            let target_raw = e.target().expect("Failed to get target from mouse click");
+            let target_elem = target_raw
+                .dyn_into::<Element>()
+                .expect("Failed to get Element");
+            let rect = target_elem.get_bounding_client_rect();
+
+            let (x, y) = (x - rect.left() as u32, rect.bottom() as u32 - y);
+            let mut mouse = mouse.borrow_mut();
+            mouse.x = x;
+            mouse.y = y;
+            mouse.clicked = true;
+        });
+        let closure =
+            wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::MouseEvent)>);
+        document.set_onclick(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
+    }
+
     /// Draws a point at position x and y
     pub fn draw_point(&self, x: f32, y: f32) -> Result<(), JsValue> {
         self.point_pipeline.program.bind();
@@ -808,6 +973,41 @@ impl Context {
     /// Draws a primitive
     pub fn draw_primitive(&self) -> Result<(), JsValue> {
         self.gl.enable(GL::DEPTH_TEST);
+
+        if let Ok(mut mouse) = self.mouse.try_borrow_mut() {
+            if mouse.clicked {
+                self.gl
+                    .bind_framebuffer(GL::FRAMEBUFFER, self.offscreen_framebuffer.as_ref());
+
+                self.draw_select()?;
+
+                let mut pixel = [0u8, 0, 0, 0];
+                self.gl.read_pixels_with_opt_u8_array(
+                    mouse.x as i32,
+                    mouse.y as i32,
+                    1,
+                    1,
+                    GL::RGBA,
+                    GL::UNSIGNED_BYTE,
+                    Some(&mut pixel),
+                )?;
+
+                self.gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+
+                for pair in self.select_pipeline.node_colors.iter() {
+                    let color = pair.1;
+                    if pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2] {
+                        mouse.selected_node = Some(*pair.0);
+                        break;
+                    }
+
+                    mouse.selected_node = None;
+                }
+
+                mouse.clicked = false;
+            }
+        }
+
         self.default_pipeline.program.bind();
 
         // View
@@ -873,6 +1073,18 @@ impl Context {
         node.primitive.bind(&self.gl);
         self.default_pipeline.bind_attribs();
 
+        // Select color
+        let select_color_loc = self
+            .default_pipeline
+            .program
+            .get_uniform_loc("select_color");
+        let select_color = match self.mouse.borrow().selected_node {
+            Some(node_id) if node_id == node.id => [0.4f32, 0.4, 0.1, 0.0],
+            _ => [0.0f32, 0.0, 0.0, 0.0],
+        };
+        self.gl
+            .uniform4fv_with_f32_array(select_color_loc.as_ref(), &select_color);
+
         let transform = parent_trs * node.transform;
 
         self.gl.uniform_matrix4fv_with_f32_array(
@@ -897,6 +1109,97 @@ impl Context {
 
         for child in &node.children {
             self.draw_node(now, child, &transform);
+        }
+    }
+
+    /// Draw the scene with the select pipeline
+    pub fn draw_select(&self) -> Result<(), JsValue> {
+        self.gl.enable(GL::DEPTH_TEST);
+        self.select_pipeline.program.bind();
+
+        // View
+        let view_loc = self.select_pipeline.program.get_uniform_loc("view");
+
+        self.gl.uniform_matrix4fv_with_f32_array(
+            view_loc.as_ref(),
+            false,
+            self.view.borrow().to_homogeneous().as_slice(),
+        );
+
+        // Proj
+        let proj_loc = self.select_pipeline.program.get_uniform_loc("proj");
+
+        let width = self.canvas.width() as f32;
+        let height = self.canvas.height() as f32;
+        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 256.0);
+        self.gl.uniform_matrix4fv_with_f32_array(
+            proj_loc.as_ref(),
+            false,
+            proj.to_homogeneous().as_slice(),
+        );
+
+        // Time
+        let now = self.performance.now();
+
+        let mut transform = Isometry3::<f32>::identity();
+        let rotation =
+            UnitQuaternion::<f32>::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
+        transform.append_rotation_mut(&rotation);
+        let rotation =
+            UnitQuaternion::<f32>::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
+        transform.append_rotation_mut(&rotation);
+
+        // Clear framebuffer
+        self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
+        self.gl.clear(GL::COLOR_BUFFER_BIT);
+        self.gl.clear(GL::DEPTH_BUFFER_BIT);
+
+        // Draw all nodes
+        for node in &self.nodes {
+            self.draw_select_node(now as f32, &node, &transform);
+        }
+
+        Ok(())
+    }
+
+    fn draw_select_node(&self, now: f32, node: &Node, parent_trs: &Isometry3<f32>) {
+        node.primitive.bind(&self.gl);
+        self.select_pipeline.bind_attribs();
+
+        // Color
+        let color = self
+            .select_pipeline
+            .node_colors
+            .get(&node.id)
+            .expect(&format!("Failed to get select color for node {}", node.id));
+        let color = [
+            color[0] as f32 / 255.0,
+            color[1] as f32 / 255.0,
+            color[2] as f32 / 255.0,
+        ];
+        self.gl
+            .uniform3fv_with_f32_array(self.select_pipeline.color_loc.as_ref(), &color);
+
+        // Transform
+        let transform = parent_trs * node.transform;
+
+        self.gl.uniform_matrix4fv_with_f32_array(
+            self.select_pipeline.transform_loc.as_ref(),
+            false,
+            transform.to_homogeneous().as_slice(),
+        );
+
+        // Draw call
+        self.gl.draw_elements_with_i32(
+            GL::TRIANGLES,
+            node.primitive.index_count,
+            GL::UNSIGNED_BYTE,
+            0,
+        );
+
+        // Recursively draw this node's children
+        for child in &node.children {
+            self.draw_select_node(now, child, &transform);
         }
     }
 }
