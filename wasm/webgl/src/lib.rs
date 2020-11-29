@@ -9,6 +9,9 @@ use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use web_sys::WebGlRenderingContext as GL;
 use web_sys::*;
 
+mod gui;
+use gui::*;
+
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
@@ -615,16 +618,69 @@ impl Drop for Primitive {
     }
 }
 
+struct Image {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl Image {
+    /// Creates a default image of one white pixel
+    fn new() -> Self {
+        Self {
+            data: vec![255, 255, 255, 255],
+            width: 1,
+            height: 1,
+        }
+    }
+
+    /// Creates an image from raw data
+    fn from_raw(data: &[u8], width: u32, height: u32) -> Self {
+        Self::from_vec(data.into(), width, height)
+    }
+
+    /// Creates an image from raw data as vector
+    fn from_vec(data: Vec<u8>, width: u32, height: u32) -> Self {
+        let channels = 4; // RGBA
+        assert!(data.len() as u32 == width * height * channels);
+        Self {
+            data,
+            width,
+            height,
+        }
+    }
+
+    /// Creates an image from png data
+    fn from_png(png_data: &[u8]) -> Self {
+        let decoder = png::Decoder::new(png_data);
+        let (info, mut reader) = decoder.read_info().expect("Failed reading png info");
+        let mut data: Vec<u8> = vec![0; info.buffer_size()];
+        reader
+            .next_frame(data.as_mut_slice())
+            .expect("Failed to read png frame");
+
+        Image::from_vec(data, info.width, info.height)
+    }
+}
+
 struct Texture {
     gl: GL,
     handle: WebGlTexture,
+    width: u32,
+    height: u32,
 }
 
 impl Texture {
-    fn new(gl: GL) -> Self {
+    /// Returns a new texture uploading data from the specified image
+    fn from_image(gl: GL, image: &Image) -> Self {
         let handle = gl.create_texture().expect("Failed to create texture");
 
-        let texture = Self { gl, handle };
+        let mut texture = Self {
+            gl,
+            handle,
+            width: 0,
+            height: 0,
+        };
 
         texture.bind();
 
@@ -635,12 +691,18 @@ impl Texture {
             .gl
             .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
 
+        texture.upload(&image.data, image.width, image.height);
+
+        texture
+    }
+
+    /// Returns a new default texture with a default image (2x2 red, blue, green, white)
+    fn new(gl: GL) -> Self {
         let pixels = [
             255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
         ];
-        texture.upload(2, 2, &pixels);
-
-        texture
+        let image = Image::from_raw(&pixels, 2, 2);
+        Self::from_image(gl, &image)
     }
 
     fn bind(&self) {
@@ -649,7 +711,7 @@ impl Texture {
     }
 
     /// Uploads pixels data to the texture memory in the GPU
-    fn upload(&self, width: u32, height: u32, pixels: &[u8]) {
+    fn upload(&mut self, pixels: &[u8], width: u32, height: u32) {
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
                 GL::TEXTURE_2D,
@@ -663,6 +725,9 @@ impl Texture {
                 Some(&pixels),
             )
             .expect("Failed to upload texture data");
+
+        self.width = width;
+        self.height = height;
     }
 }
 
@@ -723,6 +788,9 @@ pub struct Context {
     select_pipeline: SelectPipeline,
     nodes: Vec<Node>,
     texture: Texture,
+
+    // @todo Remove Rc<RefCell>
+    gui: Rc<RefCell<Gui>>,
 }
 
 fn create_point_program(gl: &WebGlRenderingContext) -> PointPipeline {
@@ -839,6 +907,9 @@ impl Context {
 
         let texture = Texture::new(gl.clone());
 
+        let mut gui = Gui::new(&gl, canvas.width(), canvas.height());
+        gui.add_window(gui::Window::new(240, 32));
+
         let ret = Context {
             performance,
             canvas,
@@ -853,6 +924,8 @@ impl Context {
             select_pipeline,
             nodes,
             texture,
+
+            gui: Rc::new(RefCell::new(gui)),
         };
 
         let document = window.document().unwrap();
@@ -865,6 +938,8 @@ impl Context {
 
     fn set_onmousemove(&self, document: &Document) {
         let view = self.view.clone();
+        let gui = self.gui.clone();
+
         let callback = Box::new(move |e: web_sys::MouseEvent| {
             const MOUSE_LEFT: u16 = 1;
             const MOUSE_MIDDLE: u16 = 4;
@@ -878,6 +953,15 @@ impl Context {
                     view.borrow_mut()
                         .append_translation_mut(&Translation3::new(x, y, 0.0));
                 }
+            }
+
+            // Window resize
+            if e.buttons() == MOUSE_LEFT {
+                let x: i32 = e.movement_x() / 2;
+                let y: i32 = e.movement_y() / 2;
+                let window = &mut gui.borrow_mut().windows[0];
+                window.width = (window.width as i32 + x) as u32;
+                window.height = (window.height as i32 + y) as u32;
             }
 
             // Camera orbiting
@@ -958,6 +1042,8 @@ impl Context {
     /// Draws a primitive
     pub fn draw_primitive(&self) -> Result<(), JsValue> {
         self.gl.enable(GL::DEPTH_TEST);
+        self.gl.enable(GL::BLEND);
+        self.gl.blend_func(GL::SRC_ALPHA, GL::ONE_MINUS_SRC_ALPHA);
 
         if let Ok(mut mouse) = self.mouse.try_borrow_mut() {
             if mouse.clicked {
@@ -1050,6 +1136,8 @@ impl Context {
         for node in &self.nodes {
             self.draw_node(now as f32, &node, &transform);
         }
+
+        self.gui.borrow().draw();
 
         Ok(())
     }

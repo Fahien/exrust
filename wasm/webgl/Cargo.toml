@@ -38,6 +38,7 @@ wasm-bindgen = "0.2.68"
 js-sys = "0.3.45"
 nalgebra = "0.23.0"
 rand = { version = "0.7", features = ["wasm-bindgen"] }
+png = "0.16.7"
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
