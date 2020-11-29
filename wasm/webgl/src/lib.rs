@@ -324,18 +324,14 @@ struct Vertex {
     uv: [f32; 2],
 }
 
-/// Generic primitive geometry
-struct Primitive {
-    vertex_buffer: Option<WebGlBuffer>,
-    index_buffer: Option<WebGlBuffer>,
-    index_count: i32,
+/// CPU-side primitive geometry
+struct Geometry {
+    vertices: Vec<Vertex>,
+    indices: Vec<u8>,
 }
 
-impl Primitive {
-    fn triangle(gl: &GL) -> Self {
-        let vertex_buffer = gl.create_buffer();
-        gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
-
+impl Geometry {
+    fn triangle() -> Self {
         let vertices: Vec<Vertex> = vec![
             Vertex {
                 position: [-0.5, -0.5, 0.0],
@@ -357,27 +353,51 @@ impl Primitive {
             },
         ];
 
-        gl.buffer_data_with_array_buffer_view(
-            GL::ARRAY_BUFFER,
-            unsafe { &vertices.to_js() },
-            GL::STATIC_DRAW,
-        );
+        let indices = vec![0, 1, 2];
 
-        let index_buffer = gl.create_buffer();
-        gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, index_buffer.as_ref());
-        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &[0, 1, 2], GL::STATIC_DRAW);
-
-        Self {
-            vertex_buffer,
-            index_buffer,
-            index_count: 3,
-        }
+        Self { vertices, indices }
     }
 
-    fn cube(gl: &GL) -> Self {
-        let vertex_buffer = gl.create_buffer();
-        gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
+    /// Constructs a unit quad centered at the origin
+    /// Vertices are ordered like so: `[bottom-left, bottom-right, top-right, top-left]`
+    fn quad() -> Self {
+        let vertices: Vec<Vertex> = vec![
+            // Bottom-left
+            Vertex {
+                position: [0.0, 1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0, 1.0],
+            },
+            // Bottom-right
+            Vertex {
+                position: [1.0, 1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [1.0, 1.0],
+            },
+            // Top-right
+            Vertex {
+                position: [1.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [1.0, 0.0],
+            },
+            // Top-left
+            Vertex {
+                position: [0.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
+            },
+        ];
 
+        let indices = vec![0, 1, 2, 0, 2, 3];
+
+        Self { vertices, indices }
+    }
+
+    fn cube() -> Self {
         let vertices = vec![
             // Front
             Vertex {
@@ -540,26 +560,58 @@ impl Primitive {
             20, 21, 22, 20, 22, 23, // bottom
         ];
 
+        Self { vertices, indices }
+    }
+}
+
+/// GPU-side primitive geometry
+struct Primitive {
+    gl: GL,
+    vertex_buffer: Option<WebGlBuffer>,
+    index_buffer: Option<WebGlBuffer>,
+    index_count: i32,
+}
+
+impl Primitive {
+    fn new(gl: GL, geometry: &Geometry) -> Self {
+        let vertex_buffer = gl.create_buffer();
+        gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
         gl.buffer_data_with_array_buffer_view(
             GL::ARRAY_BUFFER,
-            unsafe { &vertices.to_js() },
+            unsafe { &geometry.vertices.to_js() },
             GL::STATIC_DRAW,
         );
 
         let index_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, index_buffer.as_ref());
-        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &indices, GL::STATIC_DRAW);
+        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &geometry.indices, GL::STATIC_DRAW);
 
+        let index_count = geometry.indices.len() as i32;
         Self {
+            gl,
             vertex_buffer,
             index_buffer,
-            index_count: indices.len() as i32,
+            index_count,
         }
     }
 
-    fn bind(&self, gl: &GL) {
-        gl.bind_buffer(GL::ARRAY_BUFFER, self.vertex_buffer.as_ref());
-        gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, self.index_buffer.as_ref());
+    fn bind(&self) {
+        self.gl
+            .bind_buffer(GL::ARRAY_BUFFER, self.vertex_buffer.as_ref());
+        self.gl
+            .bind_buffer(GL::ELEMENT_ARRAY_BUFFER, self.index_buffer.as_ref());
+    }
+
+    fn draw(&self) {
+        self.gl
+            .draw_elements_with_i32(GL::TRIANGLES, self.index_count, GL::UNSIGNED_BYTE, 0);
+    }
+}
+
+impl Drop for Primitive {
+    fn drop(&mut self) {
+        self.gl.delete_buffer(self.vertex_buffer.as_ref());
+        self.gl.delete_buffer(self.index_buffer.as_ref());
     }
 }
 
@@ -827,17 +879,19 @@ impl Context {
 
         let mut nodes = vec![];
 
-        let mut root = Node::new(Primitive::cube(&gl));
+        let cube = Geometry::cube();
+
+        let mut root = Node::new(Primitive::new(gl.clone(), &cube));
         root.transform
             .append_translation_mut(&Translation3::new(0.0, 0.0, 0.0));
 
-        let mut node_right = Node::new(Primitive::cube(&gl));
+        let mut node_right = Node::new(Primitive::new(gl.clone(), &cube));
         node_right.id = 1;
         node_right
             .transform
             .append_translation_mut(&Translation3::new(1.5, 0.0, 0.0));
 
-        let mut node_left = Node::new(Primitive::cube(&gl));
+        let mut node_left = Node::new(Primitive::new(gl.clone(), &cube));
         node_left.id = 2;
         node_left
             .transform
@@ -1070,7 +1124,7 @@ impl Context {
     }
 
     fn draw_node(&self, now: f32, node: &Node, parent_trs: &Isometry3<f32>) {
-        node.primitive.bind(&self.gl);
+        node.primitive.bind();
         self.default_pipeline.bind_attribs();
 
         // Select color
@@ -1100,12 +1154,7 @@ impl Context {
             normal_transform.as_slice(),
         );
 
-        self.gl.draw_elements_with_i32(
-            GL::TRIANGLES,
-            node.primitive.index_count,
-            GL::UNSIGNED_BYTE,
-            0,
-        );
+        node.primitive.draw();
 
         for child in &node.children {
             self.draw_node(now, child, &transform);
@@ -1163,7 +1212,7 @@ impl Context {
     }
 
     fn draw_select_node(&self, now: f32, node: &Node, parent_trs: &Isometry3<f32>) {
-        node.primitive.bind(&self.gl);
+        node.primitive.bind();
         self.select_pipeline.bind_attribs();
 
         // Color
@@ -1190,12 +1239,7 @@ impl Context {
         );
 
         // Draw call
-        self.gl.draw_elements_with_i32(
-            GL::TRIANGLES,
-            node.primitive.index_count,
-            GL::UNSIGNED_BYTE,
-            0,
-        );
+        node.primitive.draw();
 
         // Recursively draw this node's children
         for child in &node.children {
