@@ -726,84 +726,15 @@ pub struct Context {
 }
 
 fn create_point_program(gl: &WebGlRenderingContext) -> PointPipeline {
-    let vert_src = r#"
-        attribute vec2 position;
-        attribute float point_size;
-
-        void main() {
-            gl_Position = vec4(position, 0.0, 1.0);
-            gl_PointSize = point_size;
-        }
-        "#;
-
-    let frag_src = r#"
-        precision mediump float;
-
-        uniform vec4 color;
-
-        void main() {
-            gl_FragColor = color;
-        }
-        "#;
+    let vert_src = include_str!("../res/shader/point.vert.glsl");
+    let frag_src = include_str!("../res/shader/point.frag.glsl");
 
     PointPipeline::new(gl, vert_src, frag_src)
 }
 
 fn create_default_program(gl: &WebGlRenderingContext) -> DefaultPipeline {
-    let vert_src = r#"
-        attribute vec3 in_position;
-        attribute vec4 in_color;
-        attribute vec3 in_normal;
-        attribute vec2 in_uv;
-
-        varying vec3 position;
-        varying vec4 color;
-        varying vec3 normal;
-        varying vec2 uv;
-
-        uniform mat4 transform;
-        uniform mat4 normal_transform;
-        uniform mat4 view;
-        uniform mat4 proj;
-
-        void main() {
-            uv = in_uv;
-            vec4 pos4 = view * transform * vec4(in_position, 1.0);
-            position = pos4.xyz;
-            gl_Position = proj * pos4;
-            normal = mat3(normal_transform) * normalize(in_normal);
-            color = in_color;
-        }
-        "#;
-
-    let frag_src = r#"
-        precision mediump float;
-
-        varying vec3 position;
-        varying vec4 color;
-        varying vec3 normal;
-        varying vec2 uv;
-
-        uniform vec4 select_color;
-        uniform sampler2D sampler;
-        uniform vec3 light_color;
-        uniform vec3 light_position;
-
-        void main() {
-            vec3 light_direction = light_position - position;
-            float n_dot_l = max(
-                dot(
-                    normalize(light_direction),
-                    normalize(normal)
-                ),
-                0.0
-            );
-            vec3 diffuse = light_color * vec3(color) * n_dot_l;
-            vec3 ambient = light_color * vec3(color) * 0.1;
-            gl_FragColor = select_color + vec4(diffuse + ambient, color.a) * texture2D(sampler, uv);
-        }
-        "#;
-
+    let vert_src = include_str!("../res/shader/default.vert.glsl");
+    let frag_src = include_str!("../res/shader/default.frag.glsl");
     DefaultPipeline::new(gl, vert_src, frag_src)
 }
 
@@ -1098,7 +1029,7 @@ impl Context {
 
         // Texture
         self.texture.bind();
-        let sampler_loc = self.default_pipeline.program.get_uniform_loc("sampler");
+        let sampler_loc = self.default_pipeline.program.get_uniform_loc("tex_sampler");
         self.gl.uniform1i(sampler_loc.as_ref(), 0);
 
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
