@@ -957,11 +957,11 @@ impl Context {
 
             // Window resize
             if e.buttons() == MOUSE_LEFT {
+                let window = &mut gui.borrow_mut().windows[0];
                 let x: i32 = e.movement_x() / 2;
                 let y: i32 = e.movement_y() / 2;
-                let window = &mut gui.borrow_mut().windows[0];
-                window.width = (window.width as i32 + x) as u32;
-                window.height = (window.height as i32 + y) as u32;
+                window.set_width((window.get_width() as i32 + x) as u32);
+                window.set_height((window.get_height() as i32 + y) as u32);
             }
 
             // Camera orbiting

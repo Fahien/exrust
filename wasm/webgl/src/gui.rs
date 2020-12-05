@@ -345,8 +345,8 @@ impl Deref for Text {
 }
 
 pub struct Window {
-    pub width: u32,
-    pub height: u32,
+    width: u32,
+    height: u32,
     x: i32,
     y: i32,
     name: String,
@@ -355,10 +355,13 @@ pub struct Window {
 }
 
 impl Window {
+    pub const MIN_WIDTH: u32 = 128;
+    pub const MIN_HEIGHT: u32 = 128;
+
     pub fn new(width: u32, height: u32) -> Self {
         Self {
-            width,
-            height,
+            width: std::cmp::max(width, Self::MIN_WIDTH),
+            height: std::cmp::max(height, Self::MIN_HEIGHT),
             x: 10,
             y: 10,
             name: String::from("Test window"),
@@ -366,6 +369,22 @@ impl Window {
                 "Content is actually drawn inside the window, even if it is a very long string!",
             ),
         }
+    }
+
+    pub fn get_width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn set_width(&mut self, width: u32) {
+        self.width = std::cmp::max(Self::MIN_WIDTH, width);
+    }
+
+    pub fn get_height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn set_height(&mut self, height: u32) {
+        self.height = std::cmp::max(Self::MIN_HEIGHT, height);
     }
 }
 
