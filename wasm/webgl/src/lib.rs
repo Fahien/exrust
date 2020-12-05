@@ -39,9 +39,9 @@ trait ToJsArray {
     unsafe fn to_js(&self) -> js_sys::Float32Array;
 }
 
-impl ToJsArray for Vec<Vertex> {
+impl<T> ToJsArray for Vec<T> {
     unsafe fn to_js(&self) -> js_sys::Float32Array {
-        let len = self.len() * std::mem::size_of::<Vertex>() / std::mem::size_of::<f32>();
+        let len = self.len() * std::mem::size_of::<T>() / std::mem::size_of::<f32>();
         let floats = std::slice::from_raw_parts(self.as_ptr() as *const f32, len);
         js_sys::Float32Array::view(floats)
     }
@@ -328,14 +328,14 @@ struct Vertex {
 }
 
 /// CPU-side primitive geometry
-struct Geometry {
-    vertices: Vec<Vertex>,
+struct Geometry<V> {
+    vertices: Vec<V>,
     indices: Vec<u8>,
 }
 
-impl Geometry {
+impl Geometry<Vertex> {
     fn triangle() -> Self {
-        let vertices: Vec<Vertex> = vec![
+        let vertices = vec![
             Vertex {
                 position: [-0.5, -0.5, 0.0],
                 color: [1.0, 1.0, 1.0, 1.0],
@@ -576,26 +576,30 @@ struct Primitive {
 }
 
 impl Primitive {
-    fn new(gl: GL, geometry: &Geometry) -> Self {
+    fn from_raw<T>(gl: GL, vertices: &Vec<T>, indices: &Vec<u8>) -> Self {
         let vertex_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
         gl.buffer_data_with_array_buffer_view(
             GL::ARRAY_BUFFER,
-            unsafe { &geometry.vertices.to_js() },
+            unsafe { &vertices.to_js() },
             GL::STATIC_DRAW,
         );
 
         let index_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, index_buffer.as_ref());
-        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &geometry.indices, GL::STATIC_DRAW);
+        gl.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, &indices, GL::STATIC_DRAW);
 
-        let index_count = geometry.indices.len() as i32;
+        let index_count = indices.len() as i32;
         Self {
             gl,
             vertex_buffer,
             index_buffer,
             index_count,
         }
+    }
+
+    fn new<V>(gl: GL, geometry: &Geometry<V>) -> Self {
+        Self::from_raw(gl, &geometry.vertices, &geometry.indices)
     }
 
     fn bind(&self) {
