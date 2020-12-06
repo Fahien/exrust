@@ -319,12 +319,14 @@ impl SelectPipeline {
     }
 }
 
+type UV = [f32; 2];
+
 #[repr(C)]
 struct Vertex {
     position: [f32; 3], // xy
     color: [f32; 4],    // rgba
     normal: [f32; 3],
-    uv: [f32; 2],
+    uv: UV,
 }
 
 /// CPU-side primitive geometry

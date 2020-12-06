@@ -12,6 +12,9 @@ use std::ops::Deref;
 
 struct GuiPipeline {
     program: Program,
+    position_loc: i32,
+    color_loc: i32,
+    uv_loc: i32,
     transform_loc: Option<WebGlUniformLocation>,
     view_loc: Option<WebGlUniformLocation>,
     proj_loc: Option<WebGlUniformLocation>,
@@ -25,6 +28,9 @@ impl GuiPipeline {
         let program = Program::new(gl.clone(), vert_src, frag_src);
         program.bind();
 
+        let position_loc = program.get_attrib_loc("in_position");
+        let color_loc = program.get_attrib_loc("in_color");
+        let uv_loc = program.get_attrib_loc("in_uv");
         let transform_loc = program.get_uniform_loc("transform");
         let view_loc = program.get_uniform_loc("view");
         let proj_loc = program.get_uniform_loc("proj");
@@ -32,6 +38,9 @@ impl GuiPipeline {
 
         Self {
             program,
+            position_loc,
+            color_loc,
+            uv_loc,
             transform_loc,
             view_loc,
             proj_loc,
@@ -45,17 +54,21 @@ impl GuiPipeline {
         primitive.draw();
     }
 
+    fn draw_char(&self, primitive: &Primitive, c: char) {
+        primitive.bind();
+        self.bind_char_attribs(c);
+        primitive.draw();
+    }
+
     fn bind_attribs(&self) {
         // Position
-        let position_loc = self.program.get_attrib_loc("in_position");
-
         // Number of bytes between each vertex element
         let stride = std::mem::size_of::<Vertex>() as i32;
         // Offset of vertex data from the beginning of the buffer
         let offset = 0;
 
         self.program.gl.vertex_attrib_pointer_with_i32(
-            position_loc as u32,
+            self.position_loc as u32,
             3,
             GL::FLOAT,
             false,
@@ -64,34 +77,86 @@ impl GuiPipeline {
         );
         self.program
             .gl
-            .enable_vertex_attrib_array(position_loc as u32);
+            .enable_vertex_attrib_array(self.position_loc as u32);
 
         // Color
-        let color_loc = self.program.get_attrib_loc("in_color");
-
         let offset = 3 * std::mem::size_of::<f32>() as i32;
         self.program.gl.vertex_attrib_pointer_with_i32(
-            color_loc as u32,
+            self.color_loc as u32,
             4,
             GL::FLOAT,
             false,
             stride,
             offset,
         );
-        self.program.gl.enable_vertex_attrib_array(color_loc as u32);
+        self.program
+            .gl
+            .enable_vertex_attrib_array(self.color_loc as u32);
 
         // Texture coordinates
         let offset = 10 * std::mem::size_of::<f32>() as i32;
-        let uv_loc = self.program.get_attrib_loc("in_uv");
         self.program.gl.vertex_attrib_pointer_with_i32(
-            uv_loc as u32,
+            self.uv_loc as u32,
             2,
             GL::FLOAT,
             false,
             stride,
             offset,
         );
-        self.program.gl.enable_vertex_attrib_array(uv_loc as u32)
+        self.program
+            .gl
+            .enable_vertex_attrib_array(self.uv_loc as u32)
+    }
+
+    fn bind_char_attribs(&self, c: char) {
+        let index = (c as u8 + 53 as u8) as i32;
+
+        // Position
+        // Number of bytes between each vertex element
+        let stride = std::mem::size_of::<FontVertex>() as i32;
+        // Offset of vertex data from the beginning of the buffer
+        let offset = 0;
+
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            self.position_loc as u32,
+            3,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(self.position_loc as u32);
+
+        // Color
+        let offset = 3 * std::mem::size_of::<f32>() as i32;
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            self.color_loc as u32,
+            4,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(self.color_loc as u32);
+
+        // Texture coordinates
+        let stride = std::mem::size_of::<UV>() as i32;
+        let offset = 4 * std::mem::size_of::<FontVertex>() as i32 + index * stride * 4;
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            self.uv_loc as u32,
+            2,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(self.uv_loc as u32);
     }
 
     fn set_transform(&self, transform: &Matrix4<f32>) {
@@ -135,6 +200,8 @@ pub struct Gui {
     quad: Primitive,
     // Generic window title bar
     title_bar: Primitive,
+    // Primitive for the shadow
+    shadow: Primitive,
 
     texture: Texture,
 
@@ -145,23 +212,34 @@ pub struct Gui {
 
 impl Gui {
     fn create_background(gl: GL) -> Primitive {
-        let mut quad = Geometry::quad();
+        let mut quad = Geometry::<Vertex>::quad();
 
-        quad.vertices[0].uv = [0.0, 1.0];
-        quad.vertices[1].uv = [1.0, 1.0];
-        quad.vertices[2].uv = [1.0, 0.5];
-        quad.vertices[3].uv = [0.0, 0.5];
+        quad.vertices[0].uv = [0.0, 1.0/4.0];
+        quad.vertices[1].uv = [1.0, 1.0/4.0];
+        quad.vertices[2].uv = [1.0, 2.0/4.0];
+        quad.vertices[3].uv = [0.0, 2.0/4.0];
 
         Primitive::new(gl, &quad)
     }
 
     fn create_title_bar(gl: GL) -> Primitive {
-        let mut quad = Geometry::quad();
+        let mut quad = Geometry::<Vertex>::quad();
 
-        quad.vertices[0].uv = [0.0, 0.5];
-        quad.vertices[1].uv = [1.0, 0.5];
-        quad.vertices[2].uv = [1.0, 0.0];
-        quad.vertices[3].uv = [0.0, 0.0];
+        quad.vertices[0].uv = [0.0, 0.0 / 4.0];
+        quad.vertices[1].uv = [1.0, 0.0 / 4.0];
+        quad.vertices[2].uv = [1.0, 1.0 / 4.0];
+        quad.vertices[3].uv = [0.0, 1.0 / 4.0];
+
+        Primitive::new(gl, &quad)
+    }
+
+    fn create_shadow(gl: GL) -> Primitive {
+        let mut quad = Geometry::<Vertex>::quad();
+
+        quad.vertices[0].uv = [0.0, 3.0/4.0];
+        quad.vertices[1].uv = [1.0, 3.0/4.0];
+        quad.vertices[2].uv = [1.0, 4.0/4.0];
+        quad.vertices[3].uv = [0.0, 4.0/4.0];
 
         Primitive::new(gl, &quad)
     }
@@ -171,12 +249,15 @@ impl Gui {
 
         let quad = Gui::create_background(gl.clone());
         let title_bar = Gui::create_title_bar(gl.clone());
+        let shadow = Gui::create_shadow(gl.clone());
 
         let pixels = &[
             75, 75, 75, 255, // Title color
             50, 50, 50, 255, // Body color
+            255, 0, 0, 255, // Red color
+            255, 255, 255, 75, // Shadow color
         ];
-        let image = Image::from_raw(pixels, 1, 2);
+        let image = Image::from_raw(pixels, 1, 4);
         let texture = Texture::from_image(gl.clone(), &image);
 
         let font = Font::new(gl.clone());
@@ -187,6 +268,7 @@ impl Gui {
             pipeline,
             quad,
             title_bar,
+            shadow,
             texture,
             windows: vec![],
             font,
@@ -229,6 +311,18 @@ impl Gui {
 
         self.texture.bind();
 
+        // Shadow first
+        let transform = Matrix4::identity()
+            .append_nonuniform_scaling(&Vector3::new(
+                window.width as f32 + 2.0,
+                window.height as f32 + 2.0,
+                0.0,
+            ))
+            .append_translation(&Vector3::new(window.x as f32 - 1.0, window.y as f32 - 1.0, -0.1));
+        self.pipeline.set_transform(&transform);
+
+        self.pipeline.draw(&self.shadow);
+
         // Title bar
         let title_height = self.font.tile_height + 6;
         let transform = Matrix4::identity()
@@ -267,8 +361,7 @@ impl Gui {
                 ));
             self.pipeline.set_transform(&transform);
 
-            let quad = self.font.get(c);
-            self.pipeline.draw(&quad);
+            self.pipeline.draw_char(&self.font.primitive, c);
         }
 
         // Draw window text content
@@ -281,7 +374,9 @@ impl Gui {
             let word_len = self.font.tile_width * word.len() as u32;
             current_line_x += word_len;
 
-            if current_line_x + current_line_space_offset > (window.width - window_margin * 2) {
+            let word_end_x = current_line_x + current_line_space_offset + self.font.tile_width;
+            let content_size = window.width - window_margin * 2;
+            if word_end_x > content_size {
                 current_line_x = word_len;
                 current_line_space_offset = 0;
                 offset_y += self.font.tile_height;
@@ -309,8 +404,7 @@ impl Gui {
                     ));
                 self.pipeline.set_transform(&transform);
 
-                let quad = self.font.get(c);
-                self.pipeline.draw(&quad);
+                self.pipeline.draw_char(&self.font.primitive, c);
             }
         }
     }
@@ -388,62 +482,96 @@ impl Window {
     }
 }
 
+#[repr(C)]
+struct FontVertex {
+    position: [f32; 3],
+    color: [f32; 4],
+}
+
+impl Geometry<FontVertex> {
+    fn quad() -> Self {
+        let vertices: Vec<FontVertex> = vec![
+            // Bottom-left
+            FontVertex {
+                position: [0.0, 1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+            },
+            // Bottom-right
+            FontVertex {
+                position: [1.0, 1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+            },
+            // Top-right
+            FontVertex {
+                position: [1.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+            },
+            // Top-left
+            FontVertex {
+                position: [0.0, 0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+            },
+        ];
+
+        let indices = vec![0, 1, 2, 0, 2, 3];
+
+        Self { vertices, indices }
+    }
+}
+
 struct Font {
     texture: Texture,
     tile_width: u32,
     tile_height: u32,
-    /// @todo Optimize this by using one position buffer
-    /// and one UV buffer with UVs for all letters.
-    quads: Vec<Primitive>,
+    /// This primitive is using a special vertex buffer with 4 vertices
+    /// (pos, color) at the beginning followed by the UVs for all letters.
+    primitive: Primitive,
 }
 
 impl Font {
-    fn create_quads(
-        gl: GL,
+    fn create_uvs(
         image_width: u32,
         image_height: u32,
         tile_width: u32,
         tile_height: u32,
-    ) -> Vec<Primitive> {
-        let mut quads = vec![];
-
+    ) -> Vec<UV> {
         let row_count = image_height / tile_height;
         let column_count = image_width / tile_width;
 
         let expected_column_count = 32;
         assert!(column_count >= expected_column_count);
 
+        let mut uvs: Vec<UV> = vec![];
+        uvs.reserve((row_count * expected_column_count * 4) as usize);
+
         for i in 0..row_count {
             for j in 0..expected_column_count {
-                // 4 UVs to modify
-                let mut quad = Geometry::quad();
+                // 4 UVs
 
                 // Bottom-left
-                quad.vertices[0].uv = [
+                uvs.push([
                     (j * tile_width) as f32 / image_width as f32,
                     (i * tile_height + tile_height) as f32 / image_height as f32,
-                ];
+                ]);
                 // Bottom-right
-                quad.vertices[1].uv = [
+                uvs.push([
                     (j * tile_width + tile_width) as f32 / image_width as f32,
                     (i * tile_height + tile_height) as f32 / image_height as f32,
-                ];
+                ]);
                 // Top-right
-                quad.vertices[2].uv = [
+                uvs.push([
                     (j * tile_width + tile_width) as f32 / image_width as f32,
                     (i * tile_height) as f32 / image_height as f32,
-                ];
+                ]);
                 // Top-left
-                quad.vertices[3].uv = [
+                uvs.push([
                     (j * tile_width) as f32 / image_width as f32,
                     (i * tile_height) as f32 / image_height as f32,
-                ];
-
-                quads.push(Primitive::new(gl.clone(), &quad));
+                ]);
             }
         }
 
-        quads
+        uvs
     }
 
     pub fn new(gl: GL) -> Self {
@@ -454,28 +582,37 @@ impl Font {
 
         let tile_width = 8;
         let tile_height = 13;
-        let quads = Font::create_quads(
-            gl.clone(),
-            image.width,
-            image.height,
-            tile_width,
-            tile_height,
-        );
+        let uvs = Font::create_uvs(image.width, image.height, tile_width, tile_height);
+        let uvs_size = uvs.len() * std::mem::size_of::<UV>();
+
+        // Make a quad with vertices with no UVs
+        let quad = Geometry::<FontVertex>::quad();
+        let vertices_size = quad.vertices.len() * std::mem::size_of::<FontVertex>();
+
+        // Make a vertex buffer with 4 (position,color) at the beginning, and then all the various UVs
+        let mut vertex_buffer = Vec::<u8>::new();
+        vertex_buffer.resize(vertices_size + uvs_size, 0);
+
+        // Split it
+        let (vb_vertices, vb_uvs) = vertex_buffer.split_at_mut(vertices_size);
+
+        // Copy vertices
+        let vertex_buf = unsafe {
+            std::slice::from_raw_parts(quad.vertices.as_ptr() as *const u8, vertices_size)
+        };
+        vb_vertices.copy_from_slice(vertex_buf);
+
+        // Then copy UVs
+        let uvs_buf = unsafe { std::slice::from_raw_parts(uvs.as_ptr() as *const u8, uvs_size) };
+        vb_uvs.copy_from_slice(uvs_buf);
+
+        let primitive = Primitive::from_raw(gl.clone(), &vertex_buffer, &quad.indices);
 
         Self {
             texture,
             tile_width,
             tile_height,
-            quads,
-        }
-    }
-
-    pub fn get(&self, c: char) -> &Primitive {
-        let index = (c as u8 + 53 as u8) as usize;
-        if index < self.quads.len() {
-            &self.quads[index]
-        } else {
-            &self.quads[0]
+            primitive,
         }
     }
 }
