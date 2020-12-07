@@ -5,7 +5,8 @@ use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
+use na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector2, Vector3};
+use nalgebra as na;
 use web_sys::WebGlRenderingContext as GL;
 use web_sys::*;
 
@@ -30,20 +31,6 @@ extern "C" {
 macro_rules! log {
     ( $( $t:tt )* ) => {
         log(&format!( $( $t )* ));
-    }
-}
-
-trait ToJsArray {
-    /// Returns a TypedArray which is a view into this vector.
-    /// Please do not reallocate memory while the view is alive or it can become invalid.
-    unsafe fn to_js(&self) -> js_sys::Float32Array;
-}
-
-impl<T> ToJsArray for Vec<T> {
-    unsafe fn to_js(&self) -> js_sys::Float32Array {
-        let len = self.len() * std::mem::size_of::<T>() / std::mem::size_of::<f32>();
-        let floats = std::slice::from_raw_parts(self.as_ptr() as *const f32, len);
-        js_sys::Float32Array::view(floats)
     }
 }
 
@@ -581,11 +568,13 @@ impl Primitive {
     fn from_raw<T>(gl: GL, vertices: &Vec<T>, indices: &Vec<u8>) -> Self {
         let vertex_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ARRAY_BUFFER, vertex_buffer.as_ref());
-        gl.buffer_data_with_array_buffer_view(
-            GL::ARRAY_BUFFER,
-            unsafe { &vertices.to_js() },
-            GL::STATIC_DRAW,
-        );
+        let u8_slice = unsafe {
+            std::slice::from_raw_parts(
+                vertices.as_ptr() as *const u8,
+                vertices.len() * std::mem::size_of::<T>(),
+            )
+        };
+        gl.buffer_data_with_u8_array(GL::ARRAY_BUFFER, u8_slice, GL::STATIC_DRAW);
 
         let index_buffer = gl.create_buffer();
         gl.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, index_buffer.as_ref());
@@ -761,21 +750,37 @@ impl Node {
     }
 }
 
-struct Mouse {
-    x: u32,
-    y: u32,
-    clicked: bool,
+pub struct Mouse {
+    pos: na::Vector2<i32>,
+    prev: na::Vector2<i32>,
+    drag: na::Vector2<i32>,
+
+    left_click: bool,
+    left_down: bool,
+
     selected_node: Option<u32>,
 }
 
 impl Mouse {
+    const LEFT: u16 = 1;
+    const RIGHT: u16 = 2;
+    const MIDDLE: u16 = 4;
+
     fn new() -> Self {
         Self {
-            x: 0,
-            y: 0,
-            clicked: false,
+            pos: na::Vector2::new(0, 0),
+            prev: na::Vector2::new(0, 0),
+            drag: na::Vector2::new(0, 0),
+            left_click: false,
+            left_down: false,
             selected_node: None,
         }
+    }
+
+    fn reset(&mut self) {
+        self.left_click = false;
+        self.drag.x = 0;
+        self.drag.y = 0;
     }
 }
 
@@ -937,41 +942,73 @@ impl Context {
         let document = window.document().unwrap();
         ret.set_onmousemove(&document);
         ret.set_onwheel(&document);
-        ret.set_onmouseclick(&document);
+        ret.set_onmousedown(&document);
+        ret.set_onmouseup(&document);
 
         Ok(ret)
     }
 
+    fn set_onmousedown(&self, document: &Document) {
+        let mouse = self.mouse.clone();
+        let callback = Box::new(move |e: web_sys::MouseEvent| {
+            // Update mouse state
+            let mut mouse = mouse.borrow_mut();
+            if e.buttons() == Mouse::LEFT {
+                mouse.left_down = true;
+                mouse.left_click = true;
+            }
+        });
+        let closure =
+            wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::MouseEvent)>);
+        document.set_onmousedown(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
+    }
+
+    fn set_onmouseup(&self, document: &Document) {
+        let mouse = self.mouse.clone();
+        let callback = Box::new(move |e: web_sys::MouseEvent| {
+            // Update mouse state
+            let mut mouse = mouse.borrow_mut();
+            if e.buttons() != Mouse::LEFT {
+                mouse.left_down = false;
+            }
+        });
+        let closure =
+            wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::MouseEvent)>);
+        document.set_onmouseup(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
+    }
+
     fn set_onmousemove(&self, document: &Document) {
         let view = self.view.clone();
-        let gui = self.gui.clone();
+        let mouse = self.mouse.clone();
+        let height = self.canvas.height() as i32;
 
         let callback = Box::new(move |e: web_sys::MouseEvent| {
-            const MOUSE_LEFT: u16 = 1;
-            const MOUSE_MIDDLE: u16 = 4;
+            // Update mouse state
+            {
+                let mut mouse = mouse.borrow_mut();
 
-            if e.shift_key() {
-                // Check if left button is pressed
-                if e.buttons() == MOUSE_LEFT {
-                    // Camera panning
-                    let x = e.movement_x() as f32 / 256.0;
-                    let y = -(e.movement_y() as f32 / 256.0);
-                    view.borrow_mut()
-                        .append_translation_mut(&Translation3::new(x, y, 0.0));
-                }
+                mouse.prev = mouse.pos;
+
+                mouse.pos.x = e.client_x();
+                mouse.pos.y = height - e.client_y();
+
+                mouse.drag.x += mouse.pos.x - mouse.prev.x;
+                mouse.drag.y += mouse.pos.y - mouse.prev.y;
             }
 
-            // Window resize
-            if e.buttons() == MOUSE_LEFT {
-                let window = &mut gui.borrow_mut().windows[0];
-                let x: i32 = e.movement_x() / 2;
-                let y: i32 = e.movement_y() / 2;
-                window.set_width((window.get_width() as i32 + x) as u32);
-                window.set_height((window.get_height() as i32 + y) as u32);
+            // Shift + Mouse Left
+            if e.shift_key() && e.buttons() == Mouse::LEFT {
+                // Camera panning
+                let x = e.movement_x() as f32 / 256.0;
+                let y = -(e.movement_y() as f32 / 256.0);
+                view.borrow_mut()
+                    .append_translation_mut(&Translation3::new(x, y, 0.0));
             }
 
             // Camera orbiting
-            if e.buttons() == MOUSE_MIDDLE {
+            if e.buttons() == Mouse::MIDDLE {
                 let x = e.movement_x() as f32 / 256.0;
                 let y = -(e.movement_y() as f32 / 256.0);
 
@@ -1002,30 +1039,6 @@ impl Context {
         closure.forget();
     }
 
-    fn set_onmouseclick(&self, document: &Document) {
-        let mouse = self.mouse.clone();
-
-        let callback = Box::new(move |e: web_sys::MouseEvent| {
-            let (x, y) = (e.client_x() as u32, e.client_y() as u32);
-
-            let target_raw = e.target().expect("Failed to get target from mouse click");
-            let target_elem = target_raw
-                .dyn_into::<Element>()
-                .expect("Failed to get Element");
-            let rect = target_elem.get_bounding_client_rect();
-
-            let (x, y) = (x - rect.left() as u32, rect.bottom() as u32 - y);
-            let mut mouse = mouse.borrow_mut();
-            mouse.x = x;
-            mouse.y = y;
-            mouse.clicked = true;
-        });
-        let closure =
-            wasm_bindgen::closure::Closure::wrap(callback as Box<dyn FnMut(web_sys::MouseEvent)>);
-        document.set_onclick(Some(closure.as_ref().unchecked_ref()));
-        closure.forget();
-    }
-
     /// Draws a point at position x and y
     pub fn draw_point(&self, x: f32, y: f32) -> Result<(), JsValue> {
         self.point_pipeline.program.bind();
@@ -1045,45 +1058,73 @@ impl Context {
         Ok(())
     }
 
-    /// Draws a primitive
-    pub fn draw_primitive(&self) -> Result<(), JsValue> {
+    // Update window content
+    fn update_gui(&self) {
+        let window = &mut self.gui.borrow_mut().windows[0];
+        let mouse = self.mouse.borrow();
+        window.text.value = format!(
+            "Mouse
+ pos: ({},{})
+ drag: ({},{})
+ left: (click: {}, down: {})",
+            mouse.pos.x, mouse.pos.y, mouse.drag.x, mouse.drag.y, mouse.left_click, mouse.left_down
+        );
+    }
+
+    /// Handles user input
+    fn handle_input(&self) -> Result<(), JsValue> {
+        let mut mouse = self.mouse.borrow_mut();
+
+        // Check whether the GUI captures mouse input
+        if self.gui.borrow_mut().handle_mouse(&mouse) {
+            return Ok(());
+        }
+
+        // Selection pipeline
+        if mouse.left_click {
+            self.gl
+                .bind_framebuffer(GL::FRAMEBUFFER, self.offscreen_framebuffer.as_ref());
+
+            self.draw_select()?;
+
+            let mut pixel = [0u8, 0, 0, 0];
+            self.gl.read_pixels_with_opt_u8_array(
+                mouse.pos.x,
+                mouse.pos.y,
+                1,
+                1,
+                GL::RGBA,
+                GL::UNSIGNED_BYTE,
+                Some(&mut pixel),
+            )?;
+
+            self.gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+
+            for pair in self.select_pipeline.node_colors.iter() {
+                let color = pair.1;
+                if pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2] {
+                    mouse.selected_node = Some(*pair.0);
+                    break;
+                }
+
+                mouse.selected_node = None;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Draws the scene
+    pub fn draw(&self) -> Result<(), JsValue> {
+        self.handle_input()?;
+        self.update_gui();
+        // After using input, reset its state
+        self.mouse.borrow_mut().reset();
+
+        // Set graphics state
         self.gl.enable(GL::DEPTH_TEST);
         self.gl.enable(GL::BLEND);
         self.gl.blend_func(GL::SRC_ALPHA, GL::ONE_MINUS_SRC_ALPHA);
-
-        if let Ok(mut mouse) = self.mouse.try_borrow_mut() {
-            if mouse.clicked {
-                self.gl
-                    .bind_framebuffer(GL::FRAMEBUFFER, self.offscreen_framebuffer.as_ref());
-
-                self.draw_select()?;
-
-                let mut pixel = [0u8, 0, 0, 0];
-                self.gl.read_pixels_with_opt_u8_array(
-                    mouse.x as i32,
-                    mouse.y as i32,
-                    1,
-                    1,
-                    GL::RGBA,
-                    GL::UNSIGNED_BYTE,
-                    Some(&mut pixel),
-                )?;
-
-                self.gl.bind_framebuffer(GL::FRAMEBUFFER, None);
-
-                for pair in self.select_pipeline.node_colors.iter() {
-                    let color = pair.1;
-                    if pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2] {
-                        mouse.selected_node = Some(*pair.0);
-                        break;
-                    }
-
-                    mouse.selected_node = None;
-                }
-
-                mouse.clicked = false;
-            }
-        }
 
         self.default_pipeline.program.bind();
 

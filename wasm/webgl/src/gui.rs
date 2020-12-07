@@ -1,14 +1,12 @@
-/// @todo 0. Iterate through words for a proper line breaking
+/// @todo 0. Draw 2 windows
 /// @todo 1. Make the GUI mode immediate
-/// @todo 2. Drag the title bar to move the window around
-/// @todo 3. Gui needs to capture mouse input
-/// @todo 4. Make window resizable
-/// @todo 5. Make window content scrollable
+/// @todo 2. Make window content scrollable
+/// @todo 3. Make window resizable
 use super::*;
 
 use nalgebra::Matrix4;
-use std::convert::From;
 use std::ops::Deref;
+use std::{convert::From, ops::DerefMut};
 
 struct GuiPipeline {
     program: Program,
@@ -196,6 +194,9 @@ pub struct Gui {
 
     pipeline: GuiPipeline,
 
+    view: Matrix4<f32>,
+    proj: Matrix4<f32>,
+
     // Generic window background
     quad: Primitive,
     // Generic window title bar
@@ -208,16 +209,22 @@ pub struct Gui {
     pub windows: Vec<Window>,
 
     font: Font,
+
+    // Global window title height
+    title_height: u32,
+
+    // Index of the window to drag around
+    dragging_window: Option<usize>,
 }
 
 impl Gui {
     fn create_background(gl: GL) -> Primitive {
         let mut quad = Geometry::<Vertex>::quad();
 
-        quad.vertices[0].uv = [0.0, 1.0/4.0];
-        quad.vertices[1].uv = [1.0, 1.0/4.0];
-        quad.vertices[2].uv = [1.0, 2.0/4.0];
-        quad.vertices[3].uv = [0.0, 2.0/4.0];
+        quad.vertices[0].uv = [0.0, 1.0 / 4.0];
+        quad.vertices[1].uv = [1.0, 1.0 / 4.0];
+        quad.vertices[2].uv = [1.0, 2.0 / 4.0];
+        quad.vertices[3].uv = [0.0, 2.0 / 4.0];
 
         Primitive::new(gl, &quad)
     }
@@ -236,16 +243,26 @@ impl Gui {
     fn create_shadow(gl: GL) -> Primitive {
         let mut quad = Geometry::<Vertex>::quad();
 
-        quad.vertices[0].uv = [0.0, 3.0/4.0];
-        quad.vertices[1].uv = [1.0, 3.0/4.0];
-        quad.vertices[2].uv = [1.0, 4.0/4.0];
-        quad.vertices[3].uv = [0.0, 4.0/4.0];
+        quad.vertices[0].uv = [0.0, 3.0 / 4.0];
+        quad.vertices[1].uv = [1.0, 3.0 / 4.0];
+        quad.vertices[2].uv = [1.0, 4.0 / 4.0];
+        quad.vertices[3].uv = [0.0, 4.0 / 4.0];
 
         Primitive::new(gl, &quad)
     }
 
     pub fn new(gl: &GL, width: u32, height: u32) -> Self {
         let pipeline = GuiPipeline::new(&gl);
+
+        let view = Isometry3::look_at_rh(
+            &Point3::new(0.0, 0.0, 0.5),
+            &Point3::origin(),
+            &Vector3::new(0.0, 1.0, 0.0),
+        )
+        .to_homogeneous();
+
+        let proj = nalgebra::Orthographic3::new(0.0, width as f32, height as f32, 0.0, 0.125, 1.0)
+            .to_homogeneous();
 
         let quad = Gui::create_background(gl.clone());
         let title_bar = Gui::create_title_bar(gl.clone());
@@ -262,16 +279,23 @@ impl Gui {
 
         let font = Font::new(gl.clone());
 
+        let margin = 3;
+        let title_height = font.tile_height + margin * 2;
+
         Self {
             width,
             height,
             pipeline,
+            view,
+            proj,
             quad,
             title_bar,
             shadow,
             texture,
             windows: vec![],
             font,
+            title_height,
+            dragging_window: None,
         }
     }
 
@@ -279,27 +303,53 @@ impl Gui {
         self.windows.push(window);
     }
 
+    // Returns whether input has been handled or not
+    pub fn handle_mouse(&mut self, mouse: &Mouse) -> bool {
+        for (i, window) in self.windows.iter_mut().enumerate() {
+            let mouse_x = mouse.pos.x;
+            let mouse_y = self.height as i32 - mouse.pos.y;
+
+            // Check if we are going to drag a window around
+            if mouse.left_click {
+                let x_in_title =
+                    mouse_x > window.pos.x && mouse_x < window.pos.x + window.width as i32;
+                let y_in_title =
+                    mouse_y > window.pos.y && mouse_y < window.pos.y + self.title_height as i32;
+                // Check whether mouse is inside title bar
+                if x_in_title && y_in_title {
+                    self.dragging_window = Some(i);
+                }
+            }
+
+            if !mouse.left_down {
+                self.dragging_window = None;
+            }
+
+            if let Some(window_index) = self.dragging_window {
+                if window_index == i {
+                    window.pos.x += mouse.drag.x;
+                    window.pos.y -= mouse.drag.y;
+                }
+            }
+
+            // Check whether mouse is inside the whole window
+            let x_in_window =
+                mouse_x > window.pos.x && mouse_x < window.pos.x + window.width as i32;
+            let y_in_window =
+                mouse_y > window.pos.y && mouse_y < window.pos.y + window.height as i32;
+            if x_in_window && y_in_window {
+                return true;
+            }
+        }
+
+        false
+    }
+
     pub fn draw(&self) {
         self.pipeline.program.bind();
 
-        let view = Isometry3::look_at_rh(
-            &Point3::new(0.0, 0.0, 0.5),
-            &Point3::origin(),
-            &Vector3::new(0.0, 1.0, 0.0),
-        )
-        .to_homogeneous();
-        self.pipeline.set_view(&view);
-
-        let proj = nalgebra::Orthographic3::new(
-            0.0,
-            self.width as f32,
-            self.height as f32,
-            0.0,
-            0.125,
-            1.0,
-        )
-        .to_homogeneous();
-        self.pipeline.set_proj(&proj);
+        self.pipeline.set_view(&self.view);
+        self.pipeline.set_proj(&self.proj);
 
         for window in &self.windows {
             self.draw_window(window);
@@ -311,25 +361,15 @@ impl Gui {
 
         self.texture.bind();
 
-        // Shadow first
+        // Title bar
         let transform = Matrix4::identity()
             .append_nonuniform_scaling(&Vector3::new(
-                window.width as f32 + 2.0,
-                window.height as f32 + 2.0,
+                window.width as f32,
+                self.title_height as f32,
                 0.0,
             ))
-            .append_translation(&Vector3::new(window.x as f32 - 1.0, window.y as f32 - 1.0, -0.1));
+            .append_translation(&Vector3::new(window.pos.x as f32, window.pos.y as f32, 0.1));
         self.pipeline.set_transform(&transform);
-
-        self.pipeline.draw(&self.shadow);
-
-        // Title bar
-        let title_height = self.font.tile_height + 6;
-        let transform = Matrix4::identity()
-            .append_nonuniform_scaling(&Vector3::new(window.width as f32, title_height as f32, 0.0))
-            .append_translation(&Vector3::new(window.x as f32, window.y as f32, 0.1));
-        self.pipeline.set_transform(&transform);
-
         self.pipeline.draw(&self.title_bar);
 
         // Background
@@ -339,14 +379,29 @@ impl Gui {
                 window.height as f32,
                 0.0,
             ))
-            .append_translation(&Vector3::new(window.x as f32, window.y as f32, 0.0));
+            .append_translation(&Vector3::new(window.pos.x as f32, window.pos.y as f32, 0.0));
         self.pipeline.set_transform(&transform);
-
         self.pipeline.draw(&self.quad);
 
+        // Shadow
+        let transform = Matrix4::identity()
+            .append_nonuniform_scaling(&Vector3::new(
+                window.width as f32 + 2.0,
+                window.height as f32 + 2.0,
+                0.0,
+            ))
+            .append_translation(&Vector3::new(
+                window.pos.x as f32 - 1.0,
+                window.pos.y as f32 - 1.0,
+                -0.1,
+            ));
+        self.pipeline.set_transform(&transform);
+        self.pipeline.draw(&self.shadow);
+
+        // Text
         self.font.texture.bind();
 
-        // Draw window title
+        // Draw window title name
         for (i, c) in window.name.chars().enumerate() {
             let transform = Matrix4::identity()
                 .append_nonuniform_scaling(&Vector3::new(
@@ -355,8 +410,8 @@ impl Gui {
                     0.0,
                 ))
                 .append_translation(&Vector3::new(
-                    window.x as f32 + 4.0 + (self.font.tile_width as usize * i) as f32,
-                    window.y as f32 + 4.0,
+                    window.pos.x as f32 + 4.0 + (self.font.tile_width as usize * i) as f32,
+                    window.pos.y as f32 + 4.0,
                     0.2,
                 ));
             self.pipeline.set_transform(&transform);
@@ -385,11 +440,18 @@ impl Gui {
             }
 
             for (j, c) in word.chars().enumerate() {
+                if c == '\n' {
+                    current_line_x = word_len - (1 + j as u32) * self.font.tile_width;
+                    current_line_space_offset = 0;
+                    offset_y += self.font.tile_height;
+                    continue;
+                }
                 let current_char_x = current_line_space_offset
                     + (current_line_x - word_len)
                     + self.font.tile_width * j as u32;
-                let translation_x = window.x + (window_margin + current_char_x) as i32;
-                let translation_y = window.y + (window_margin + title_height + offset_y) as i32;
+                let translation_x = window.pos.x + (window_margin + current_char_x) as i32;
+                let translation_y =
+                    window.pos.y + (window_margin + self.title_height + offset_y) as i32;
 
                 let transform = Matrix4::identity()
                     .append_nonuniform_scaling(&Vector3::new(
@@ -411,7 +473,7 @@ impl Gui {
 }
 
 pub struct Text {
-    value: String,
+    pub value: String,
 }
 
 impl Text {
@@ -438,14 +500,19 @@ impl Deref for Text {
     }
 }
 
+impl DerefMut for Text {
+    fn deref_mut(&mut self) -> &mut String {
+        &mut self.value
+    }
+}
+
 pub struct Window {
     width: u32,
     height: u32,
-    x: i32,
-    y: i32,
+    pos: na::Vector2<i32>,
     name: String,
 
-    text: Text,
+    pub text: Text,
 }
 
 impl Window {
@@ -456,8 +523,7 @@ impl Window {
         Self {
             width: std::cmp::max(width, Self::MIN_WIDTH),
             height: std::cmp::max(height, Self::MIN_HEIGHT),
-            x: 10,
-            y: 10,
+            pos: na::Vector2::new(10, 10),
             name: String::from("Test window"),
             text: Text::from(
                 "Content is actually drawn inside the window, even if it is a very long string!",
