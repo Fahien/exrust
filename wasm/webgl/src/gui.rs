@@ -208,13 +208,19 @@ pub struct Gui {
 
     pub windows: Vec<Window>,
 
+    // List of indices into the windows list ordered by farther to closer
+    windows_order: Vec<usize>,
+
     font: Font,
 
     // Global window title height
     title_height: u32,
 
-    // Index of the window to drag around
-    dragging_window: Option<usize>,
+    // Index of the window which is focused
+    pub focus: Option<usize>,
+
+    // Whether we are draggin the foreground window or not
+    dragging: bool,
 }
 
 impl Gui {
@@ -255,14 +261,15 @@ impl Gui {
         let pipeline = GuiPipeline::new(&gl);
 
         let view = Isometry3::look_at_rh(
-            &Point3::new(0.0, 0.0, 0.5),
+            &Point3::new(0.0, 0.0, 100.5),
             &Point3::origin(),
             &Vector3::new(0.0, 1.0, 0.0),
         )
         .to_homogeneous();
 
-        let proj = nalgebra::Orthographic3::new(0.0, width as f32, height as f32, 0.0, 0.125, 1.0)
-            .to_homogeneous();
+        let proj =
+            nalgebra::Orthographic3::new(0.0, width as f32, height as f32, 0.0, 0.125, 101.0)
+                .to_homogeneous();
 
         let quad = Gui::create_background(gl.clone());
         let title_bar = Gui::create_title_bar(gl.clone());
@@ -293,73 +300,99 @@ impl Gui {
             shadow,
             texture,
             windows: vec![],
+            windows_order: vec![],
             font,
             title_height,
-            dragging_window: None,
+            focus: None,
+            dragging: false,
         }
     }
 
     pub fn add_window(&mut self, window: Window) {
+        self.windows_order.push(self.windows.len());
         self.windows.push(window);
     }
 
     // Returns whether input has been handled or not
     pub fn handle_mouse(&mut self, mouse: &Mouse) -> bool {
-        for (i, window) in self.windows.iter_mut().enumerate() {
-            let mouse_x = mouse.pos.x;
-            let mouse_y = self.height as i32 - mouse.pos.y;
+        let mut handled = false;
 
-            // Check if we are going to drag a window around
-            if mouse.left_click {
-                let x_in_title =
-                    mouse_x > window.pos.x && mouse_x < window.pos.x + window.width as i32;
-                let y_in_title =
-                    mouse_y > window.pos.y && mouse_y < window.pos.y + self.title_height as i32;
-                // Check whether mouse is inside title bar
-                if x_in_title && y_in_title {
-                    self.dragging_window = Some(i);
+        let mouse_x = mouse.pos.x;
+        let mouse_y = self.height as i32 - mouse.pos.y;
+
+        let mut new_focus = None;
+
+        let window_count = self.windows.len();
+
+        if mouse.left_click {
+            // Iterate through windows from closer to further
+            for (i, window_index) in self.windows_order.iter().rev().enumerate() {
+                let window = &self.windows[*window_index];
+
+                // Check whether mouse is clicking on the title of the window
+                if !self.dragging
+                    && window.title_contains(self.title_height as i32, mouse_x, mouse_y)
+                {
+                    self.dragging = true;
+                }
+
+                // Check whether mouse is clicking on the window
+                if window.contains(mouse_x, mouse_y) {
+                    if new_focus.is_none() {
+                        // Set this window as focus
+                        new_focus = Some(window_count - 1 - i);
+                    }
+
+                    handled = true;
                 }
             }
 
-            if !mouse.left_down {
-                self.dragging_window = None;
-            }
-
-            if let Some(window_index) = self.dragging_window {
-                if window_index == i {
-                    window.pos.x += mouse.drag.x;
-                    window.pos.y -= mouse.drag.y;
+            if new_focus != self.focus {
+                if let Some(new_index) = new_focus {
+                    let last_index = window_count - 1;
+                    // Move new focused window at the end of the window list
+                    self.windows_order.swap(new_index, last_index);
+                    self.focus = Some(last_index);
+                } else {
+                    self.focus = None;
                 }
-            }
-
-            // Check whether mouse is inside the whole window
-            let x_in_window =
-                mouse_x > window.pos.x && mouse_x < window.pos.x + window.width as i32;
-            let y_in_window =
-                mouse_y > window.pos.y && mouse_y < window.pos.y + window.height as i32;
-            if x_in_window && y_in_window {
-                return true;
             }
         }
 
-        false
+        // Mouse release means not dragging anymore
+        if !mouse.left_down {
+            self.dragging = false;
+        }
+
+        // Update window position that we are dragging
+        if self.dragging && window_count > 0 {
+            let window = &mut self.windows[*self.windows_order.last().unwrap()];
+            window.pos.x += mouse.drag.x;
+            window.pos.y -= mouse.drag.y;
+        }
+
+        handled
     }
 
     pub fn draw(&self) {
+        self.pipeline.program.gl.clear(GL::DEPTH_BUFFER_BIT);
         self.pipeline.program.bind();
 
         self.pipeline.set_view(&self.view);
         self.pipeline.set_proj(&self.proj);
 
-        for window in &self.windows {
-            self.draw_window(window);
+        for (i, window_index) in self.windows_order.iter().enumerate() {
+            let window = &self.windows[*window_index];
+            self.draw_window(window, i);
         }
     }
 
-    fn draw_window(&self, window: &Window) {
+    fn draw_window(&self, window: &Window, i: usize) {
         self.pipeline.set_sampler(0);
 
         self.texture.bind();
+
+        let z = i as f32;
 
         // Title bar
         let transform = Matrix4::identity()
@@ -368,7 +401,11 @@ impl Gui {
                 self.title_height as f32,
                 0.0,
             ))
-            .append_translation(&Vector3::new(window.pos.x as f32, window.pos.y as f32, 0.1));
+            .append_translation(&Vector3::new(
+                window.pos.x as f32,
+                window.pos.y as f32,
+                z + 0.2,
+            ));
         self.pipeline.set_transform(&transform);
         self.pipeline.draw(&self.title_bar);
 
@@ -379,7 +416,11 @@ impl Gui {
                 window.height as f32,
                 0.0,
             ))
-            .append_translation(&Vector3::new(window.pos.x as f32, window.pos.y as f32, 0.0));
+            .append_translation(&Vector3::new(
+                window.pos.x as f32,
+                window.pos.y as f32,
+                z + 0.1,
+            ));
         self.pipeline.set_transform(&transform);
         self.pipeline.draw(&self.quad);
 
@@ -393,7 +434,7 @@ impl Gui {
             .append_translation(&Vector3::new(
                 window.pos.x as f32 - 1.0,
                 window.pos.y as f32 - 1.0,
-                -0.1,
+                z,
             ));
         self.pipeline.set_transform(&transform);
         self.pipeline.draw(&self.shadow);
@@ -412,7 +453,7 @@ impl Gui {
                 .append_translation(&Vector3::new(
                     window.pos.x as f32 + 4.0 + (self.font.tile_width as usize * i) as f32,
                     window.pos.y as f32 + 4.0,
-                    0.2,
+                    z + 0.3,
                 ));
             self.pipeline.set_transform(&transform);
 
@@ -462,7 +503,7 @@ impl Gui {
                     .append_translation(&Vector3::new(
                         translation_x as f32,
                         translation_y as f32,
-                        0.2,
+                        z + 0.3,
                     ));
                 self.pipeline.set_transform(&transform);
 
@@ -529,6 +570,20 @@ impl Window {
                 "Content is actually drawn inside the window, even if it is a very long string!",
             ),
         }
+    }
+
+    /// Checks whether the specified coords are inside the whole window
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        let x_in_window = x > self.pos.x && x < self.pos.x + self.width as i32;
+        let y_in_window = y > self.pos.y && y < self.pos.y + self.height as i32;
+        x_in_window && y_in_window
+    }
+
+    /// Checks whether the specified coords are inside the title bar
+    pub fn title_contains(&self, height: i32, x: i32, y: i32) -> bool {
+        let x_in_title = x > self.pos.x && x < self.pos.x + self.width as i32;
+        let y_in_title = y > self.pos.y && y < self.pos.y + height;
+        x_in_title && y_in_title
     }
 
     pub fn get_width(&self) -> u32 {

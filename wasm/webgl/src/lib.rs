@@ -920,6 +920,7 @@ impl Context {
 
         let mut gui = Gui::new(&gl, canvas.width(), canvas.height());
         gui.add_window(gui::Window::new(240, 32));
+        gui.add_window(gui::Window::new(320, 240));
 
         let ret = Context {
             performance,
@@ -1165,8 +1166,9 @@ impl Context {
         let sampler_loc = self.default_pipeline.program.get_uniform_loc("tex_sampler");
         self.gl.uniform1i(sampler_loc.as_ref(), 0);
 
-        self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
+        self.gl.clear_color(0.2, 0.2, 0.3, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
+        self.gl.clear(GL::DEPTH_BUFFER_BIT);
 
         // Time
         let now = self.performance.now();
