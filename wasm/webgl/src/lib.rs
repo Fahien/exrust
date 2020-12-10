@@ -1061,14 +1061,22 @@ impl Context {
 
     // Update window content
     fn update_gui(&self) {
+        let focus = self.gui.borrow().focus.clone();
         let window = &mut self.gui.borrow_mut().windows[0];
         let mouse = self.mouse.borrow();
         window.text.value = format!(
             "Mouse
  pos: ({},{})
  drag: ({},{})
- left: (click: {}, down: {})",
-            mouse.pos.x, mouse.pos.y, mouse.drag.x, mouse.drag.y, mouse.left_click, mouse.left_down
+ left: (click: {}, down: {})
+ focus: {:?}",
+            mouse.pos.x,
+            mouse.pos.y,
+            mouse.drag.x,
+            mouse.drag.y,
+            mouse.left_click,
+            mouse.left_down,
+            focus,
         );
     }
 

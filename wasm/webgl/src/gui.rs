@@ -1,4 +1,4 @@
-/// @todo 0. Draw 2 windows
+/// @todo 0. Draw 3 windows
 /// @todo 1. Make the GUI mode immediate
 /// @todo 2. Make window content scrollable
 /// @todo 3. Make window resizable
@@ -11,8 +11,8 @@ use std::{convert::From, ops::DerefMut};
 struct GuiPipeline {
     program: Program,
     position_loc: i32,
-    color_loc: i32,
     uv_loc: i32,
+    color_loc: Option<WebGlUniformLocation>,
     transform_loc: Option<WebGlUniformLocation>,
     view_loc: Option<WebGlUniformLocation>,
     proj_loc: Option<WebGlUniformLocation>,
@@ -27,8 +27,8 @@ impl GuiPipeline {
         program.bind();
 
         let position_loc = program.get_attrib_loc("in_position");
-        let color_loc = program.get_attrib_loc("in_color");
         let uv_loc = program.get_attrib_loc("in_uv");
+        let color_loc = program.get_uniform_loc("color");
         let transform_loc = program.get_uniform_loc("transform");
         let view_loc = program.get_uniform_loc("view");
         let proj_loc = program.get_uniform_loc("proj");
@@ -37,8 +37,8 @@ impl GuiPipeline {
         Self {
             program,
             position_loc,
-            color_loc,
             uv_loc,
+            color_loc,
             transform_loc,
             view_loc,
             proj_loc,
@@ -77,20 +77,6 @@ impl GuiPipeline {
             .gl
             .enable_vertex_attrib_array(self.position_loc as u32);
 
-        // Color
-        let offset = 3 * std::mem::size_of::<f32>() as i32;
-        self.program.gl.vertex_attrib_pointer_with_i32(
-            self.color_loc as u32,
-            4,
-            GL::FLOAT,
-            false,
-            stride,
-            offset,
-        );
-        self.program
-            .gl
-            .enable_vertex_attrib_array(self.color_loc as u32);
-
         // Texture coordinates
         let offset = 10 * std::mem::size_of::<f32>() as i32;
         self.program.gl.vertex_attrib_pointer_with_i32(
@@ -127,20 +113,6 @@ impl GuiPipeline {
             .gl
             .enable_vertex_attrib_array(self.position_loc as u32);
 
-        // Color
-        let offset = 3 * std::mem::size_of::<f32>() as i32;
-        self.program.gl.vertex_attrib_pointer_with_i32(
-            self.color_loc as u32,
-            4,
-            GL::FLOAT,
-            false,
-            stride,
-            offset,
-        );
-        self.program
-            .gl
-            .enable_vertex_attrib_array(self.color_loc as u32);
-
         // Texture coordinates
         let stride = std::mem::size_of::<UV>() as i32;
         let offset = 4 * std::mem::size_of::<FontVertex>() as i32 + index * stride * 4;
@@ -155,6 +127,12 @@ impl GuiPipeline {
         self.program
             .gl
             .enable_vertex_attrib_array(self.uv_loc as u32);
+    }
+
+    fn set_color(&self, color: &[f32; 4]) {
+        self.program
+            .gl
+            .uniform4fv_with_f32_array(self.color_loc.as_ref(), color)
     }
 
     fn set_transform(&self, transform: &Matrix4<f32>) {
@@ -276,10 +254,10 @@ impl Gui {
         let shadow = Gui::create_shadow(gl.clone());
 
         let pixels = &[
-            75, 75, 75, 255, // Title color
+            80, 80, 80, 255, // Title color
             50, 50, 50, 255, // Body color
             255, 0, 0, 255, // Red color
-            255, 255, 255, 75, // Shadow color
+            255, 255, 255, 255, // Shadow color
         ];
         let image = Image::from_raw(pixels, 1, 4);
         let texture = Texture::from_image(gl.clone(), &image);
@@ -392,7 +370,21 @@ impl Gui {
 
         self.texture.bind();
 
+        self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
+
         let z = i as f32;
+
+        let is_focused = if let Some(focus_index) = self.focus {
+            i == focus_index
+        } else {
+            false
+        };
+
+        if is_focused {
+            self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
+        } else {
+            self.pipeline.set_color(&[0.8, 0.8, 0.8, 1.0]);
+        }
 
         // Title bar
         let transform = Matrix4::identity()
@@ -409,6 +401,8 @@ impl Gui {
         self.pipeline.set_transform(&transform);
         self.pipeline.draw(&self.title_bar);
 
+        self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
+
         // Background
         let transform = Matrix4::identity()
             .append_nonuniform_scaling(&Vector3::new(
@@ -423,6 +417,12 @@ impl Gui {
             ));
         self.pipeline.set_transform(&transform);
         self.pipeline.draw(&self.quad);
+
+        if is_focused {
+            self.pipeline.set_color(&[0.8, 0.3, 0.0, 0.4]);
+        } else {
+            self.pipeline.set_color(&[0.0, 0.0, 0.0, 0.4]);
+        }
 
         // Shadow
         let transform = Matrix4::identity()
@@ -441,6 +441,7 @@ impl Gui {
 
         // Text
         self.font.texture.bind();
+        self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
 
         // Draw window title name
         for (i, c) in window.name.chars().enumerate() {
@@ -606,7 +607,6 @@ impl Window {
 #[repr(C)]
 struct FontVertex {
     position: [f32; 3],
-    color: [f32; 4],
 }
 
 impl Geometry<FontVertex> {
@@ -615,22 +615,18 @@ impl Geometry<FontVertex> {
             // Bottom-left
             FontVertex {
                 position: [0.0, 1.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
             },
             // Bottom-right
             FontVertex {
                 position: [1.0, 1.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
             },
             // Top-right
             FontVertex {
                 position: [1.0, 0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
             },
             // Top-left
             FontVertex {
                 position: [0.0, 0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
             },
         ];
 
