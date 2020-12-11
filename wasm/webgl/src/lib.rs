@@ -658,7 +658,7 @@ impl Image {
     }
 }
 
-struct Texture {
+pub struct Texture {
     gl: GL,
     handle: WebGlTexture,
     width: u32,
@@ -918,9 +918,20 @@ impl Context {
 
         let texture = Texture::new(gl.clone());
 
+        // @todo Extract to function: Create GUI
         let mut gui = Gui::new(&gl, canvas.width(), canvas.height());
-        gui.add_window(gui::Window::new(240, 32));
-        gui.add_window(gui::Window::new(320, 240));
+
+        let mut mouse_window = gui::Window::new(240, 32);
+        mouse_window.name = String::from("Mouse state");
+        mouse_window.text = Some(Text::new());
+        gui.add_window(mouse_window);
+
+        let mut image_window = gui::Window::new(320, 320);
+        image_window.name = String::from("Image window");
+
+        let temp_texture = Texture::new(gl.clone());
+        image_window.image = Some(GuiImage::new(temp_texture));
+        gui.add_window(image_window);
 
         let ret = Context {
             performance,
@@ -1064,20 +1075,23 @@ impl Context {
         let focus = self.gui.borrow().focus.clone();
         let window = &mut self.gui.borrow_mut().windows[0];
         let mouse = self.mouse.borrow();
-        window.text.value = format!(
-            "Mouse
+
+        if let Some(text) = window.text.as_mut() {
+            text.value = format!(
+                "Mouse
  pos: ({},{})
  drag: ({},{})
  left: (click: {}, down: {})
  focus: {:?}",
-            mouse.pos.x,
-            mouse.pos.y,
-            mouse.drag.x,
-            mouse.drag.y,
-            mouse.left_click,
-            mouse.left_down,
-            focus,
-        );
+                mouse.pos.x,
+                mouse.pos.y,
+                mouse.drag.x,
+                mouse.drag.y,
+                mouse.left_click,
+                mouse.left_down,
+                focus,
+            );
+        }
     }
 
     /// Handles user input

@@ -1,7 +1,9 @@
-/// @todo 0. Draw 3 windows
-/// @todo 1. Make the GUI mode immediate
-/// @todo 2. Make window content scrollable
-/// @todo 3. Make window resizable
+/// @todo Draw 3 windows
+/// @todo Make the GUI mode immediate
+/// @todo Make window content scrollable
+/// @todo Make window resizable
+/// @todo Draw the scene using the select pipeline onto a texture
+/// @todo Show that texture within a window
 use super::*;
 
 use nalgebra::Matrix4;
@@ -175,11 +177,13 @@ pub struct Gui {
     view: Matrix4<f32>,
     proj: Matrix4<f32>,
 
-    // Generic window background
+    /// Generic unit quad with default UVs
     quad: Primitive,
-    // Generic window title bar
+    /// Generic window background
+    background: Primitive,
+    /// Generic window title bar
     title_bar: Primitive,
-    // Primitive for the shadow
+    /// Primitive for the shadow
     shadow: Primitive,
 
     texture: Texture,
@@ -249,7 +253,8 @@ impl Gui {
             nalgebra::Orthographic3::new(0.0, width as f32, height as f32, 0.0, 0.125, 101.0)
                 .to_homogeneous();
 
-        let quad = Gui::create_background(gl.clone());
+        let quad = Primitive::new(gl.clone(), &Geometry::<Vertex>::quad());
+        let background = Gui::create_background(gl.clone());
         let title_bar = Gui::create_title_bar(gl.clone());
         let shadow = Gui::create_shadow(gl.clone());
 
@@ -274,6 +279,7 @@ impl Gui {
             view,
             proj,
             quad,
+            background,
             title_bar,
             shadow,
             texture,
@@ -386,6 +392,8 @@ impl Gui {
             self.pipeline.set_color(&[0.8, 0.8, 0.8, 1.0]);
         }
 
+        // @todo Consider introducing constants for elements Z offsets
+
         // Title bar
         let transform = Matrix4::identity()
             .append_nonuniform_scaling(&Vector3::new(
@@ -416,7 +424,7 @@ impl Gui {
                 z + 0.1,
             ));
         self.pipeline.set_transform(&transform);
-        self.pipeline.draw(&self.quad);
+        self.pipeline.draw(&self.background);
 
         if is_focused {
             self.pipeline.set_color(&[0.8, 0.3, 0.0, 0.4]);
@@ -461,56 +469,87 @@ impl Gui {
             self.pipeline.draw_char(&self.font.primitive, c);
         }
 
-        // Draw window text content
-        let mut current_line_x = 0;
-        let mut current_line_space_offset = 0;
-        let mut offset_y = 0;
-        let window_margin = 4;
+        // Draw Content
 
-        for (i, word) in window.text.split(" ").enumerate() {
-            let word_len = self.font.tile_width * word.len() as u32;
-            current_line_x += word_len;
+        // @todo Extract to function
+        if let Some(text) = window.text.as_ref() {
+            // Draw window text content
+            let mut current_line_x = 0;
+            let mut current_line_space_offset = 0;
+            let mut offset_y = 0;
 
-            let word_end_x = current_line_x + current_line_space_offset + self.font.tile_width;
-            let content_size = window.width - window_margin * 2;
-            if word_end_x > content_size {
-                current_line_x = word_len;
-                current_line_space_offset = 0;
-                offset_y += self.font.tile_height;
-            } else if i > 0 {
-                current_line_space_offset += self.font.tile_width;
-            }
+            for (i, word) in text.split(" ").enumerate() {
+                let word_len = self.font.tile_width * word.len() as u32;
+                current_line_x += word_len;
 
-            for (j, c) in word.chars().enumerate() {
-                if c == '\n' {
-                    current_line_x = word_len - (1 + j as u32) * self.font.tile_width;
+                let word_end_x = current_line_x + current_line_space_offset + self.font.tile_width;
+                let content_size = window.width - Window::MARGIN * 2;
+                if word_end_x > content_size {
+                    current_line_x = word_len;
                     current_line_space_offset = 0;
                     offset_y += self.font.tile_height;
-                    continue;
+                } else if i > 0 {
+                    current_line_space_offset += self.font.tile_width;
                 }
-                let current_char_x = current_line_space_offset
-                    + (current_line_x - word_len)
-                    + self.font.tile_width * j as u32;
-                let translation_x = window.pos.x + (window_margin + current_char_x) as i32;
-                let translation_y =
-                    window.pos.y + (window_margin + self.title_height + offset_y) as i32;
 
-                let transform = Matrix4::identity()
-                    .append_nonuniform_scaling(&Vector3::new(
-                        self.font.tile_width as f32,
-                        self.font.tile_height as f32,
-                        0.0,
-                    ))
-                    .append_translation(&Vector3::new(
-                        translation_x as f32,
-                        translation_y as f32,
-                        z + 0.3,
-                    ));
-                self.pipeline.set_transform(&transform);
+                for (j, c) in word.chars().enumerate() {
+                    if c == '\n' {
+                        current_line_x = word_len - (1 + j as u32) * self.font.tile_width;
+                        current_line_space_offset = 0;
+                        offset_y += self.font.tile_height;
+                        continue;
+                    }
+                    let current_char_x = current_line_space_offset
+                        + (current_line_x - word_len)
+                        + self.font.tile_width * j as u32;
+                    let translation_x = window.pos.x + (Window::MARGIN + current_char_x) as i32;
+                    let translation_y =
+                        window.pos.y + (Window::MARGIN + self.title_height + offset_y) as i32;
 
-                self.pipeline.draw_char(&self.font.primitive, c);
+                    let transform = Matrix4::identity()
+                        .append_nonuniform_scaling(&Vector3::new(
+                            self.font.tile_width as f32,
+                            self.font.tile_height as f32,
+                            0.0,
+                        ))
+                        .append_translation(&Vector3::new(
+                            translation_x as f32,
+                            translation_y as f32,
+                            z + 0.3,
+                        ));
+                    self.pipeline.set_transform(&transform);
+
+                    self.pipeline.draw_char(&self.font.primitive, c);
+                }
             }
         }
+
+        // Draw image
+        if let Some(image) = window.image.as_ref() {
+            self.draw_image(window, z, image);
+        }
+    }
+
+    fn draw_image(&self, window: &Window, z: f32, image: &GuiImage) {
+        self.pipeline.set_sampler(0);
+
+        image.texture.bind();
+
+        // @todo Consider refactoring either window margin or title height
+        // Image
+        let transform = Matrix4::identity()
+            .append_nonuniform_scaling(&Vector3::new(
+                (window.width - Window::MARGIN * 2) as f32,
+                (window.height - Window::MARGIN * 2 - self.title_height) as f32,
+                0.0,
+            ))
+            .append_translation(&Vector3::new(
+                (window.pos.x + Window::MARGIN as i32) as f32,
+                (window.pos.y + (self.title_height + Window::MARGIN) as i32) as f32,
+                z + 0.3,
+            ));
+        self.pipeline.set_transform(&transform);
+        self.pipeline.draw(&self.quad);
     }
 }
 
@@ -519,7 +558,7 @@ pub struct Text {
 }
 
 impl Text {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             value: String::new(),
         }
@@ -548,18 +587,47 @@ impl DerefMut for Text {
     }
 }
 
+trait Element {
+    /// Draw a GUI element within a window
+    /// @param gui Object responsible to actually draw the element
+    fn draw(&self, gui: &Gui, window: &Window, z: f32);
+}
+
+/// @todo Consider removing the wrapper
+pub struct GuiImage {
+    texture: Texture,
+}
+
+impl GuiImage {
+    pub fn new(texture: Texture) -> Self {
+        Self { texture }
+    }
+}
+
+impl Element for GuiImage {
+    fn draw(&self, gui: &Gui, window: &Window, z: f32) {
+        // @todo Draw the image at window content position
+        // Consider that texture origin is bottom-left
+        // While window content position is at the top-left of the window
+        gui.draw_image(window, z, self);
+    }
+}
+
 pub struct Window {
     width: u32,
     height: u32,
     pos: na::Vector2<i32>,
-    name: String,
+    pub name: String,
 
-    pub text: Text,
+    // @todo Figure out how to use Option<dyn Element> here
+    pub text: Option<Text>,
+    pub image: Option<GuiImage>,
 }
 
 impl Window {
     pub const MIN_WIDTH: u32 = 128;
     pub const MIN_HEIGHT: u32 = 128;
+    pub const MARGIN: u32 = 4;
 
     pub fn new(width: u32, height: u32) -> Self {
         Self {
@@ -567,9 +635,8 @@ impl Window {
             height: std::cmp::max(height, Self::MIN_HEIGHT),
             pos: na::Vector2::new(10, 10),
             name: String::from("Test window"),
-            text: Text::from(
-                "Content is actually drawn inside the window, even if it is a very long string!",
-            ),
+            text: None,
+            image: None,
         }
     }
 
