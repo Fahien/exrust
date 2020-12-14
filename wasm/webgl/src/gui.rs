@@ -206,6 +206,17 @@ pub struct Gui {
 }
 
 impl Gui {
+    fn create_quad(gl: GL) -> Primitive {
+        let mut quad = Geometry::<Vertex>::quad();
+
+        quad.vertices[0].uv = [0.0, 0.0];
+        quad.vertices[1].uv = [1.0, 0.0];
+        quad.vertices[2].uv = [1.0, 1.0];
+        quad.vertices[3].uv = [0.0, 1.0];
+
+        Primitive::new(gl, &quad)
+    }
+
     fn create_background(gl: GL) -> Primitive {
         let mut quad = Geometry::<Vertex>::quad();
 
@@ -253,7 +264,7 @@ impl Gui {
             nalgebra::Orthographic3::new(0.0, width as f32, height as f32, 0.0, 0.125, 101.0)
                 .to_homogeneous();
 
-        let quad = Primitive::new(gl.clone(), &Geometry::<Vertex>::quad());
+        let quad = Gui::create_quad(gl.clone());
         let background = Gui::create_background(gl.clone());
         let title_bar = Gui::create_title_bar(gl.clone());
         let shadow = Gui::create_shadow(gl.clone());
@@ -261,7 +272,7 @@ impl Gui {
         let pixels = &[
             80, 80, 80, 255, // Title color
             50, 50, 50, 255, // Body color
-            255, 0, 0, 255, // Red color
+            50, 50, 50, 255, // Red color
             255, 255, 255, 255, // Shadow color
         ];
         let image = Image::from_raw(pixels, 1, 4);
@@ -533,8 +544,13 @@ impl Gui {
     fn draw_image(&self, window: &Window, z: f32, image: &GuiImage) {
         self.pipeline.set_sampler(0);
 
-        image.texture.bind();
+        self.pipeline.program.gl.active_texture(GL::TEXTURE0);
+        self.pipeline
+            .program
+            .gl
+            .bind_texture(GL::TEXTURE_2D, Some(&image.texture));
 
+        self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
         // @todo Consider refactoring either window margin or title height
         // Image
         let transform = Matrix4::identity()
@@ -595,11 +611,11 @@ trait Element {
 
 /// @todo Consider removing the wrapper
 pub struct GuiImage {
-    texture: Texture,
+    texture: WebGlTexture,
 }
 
 impl GuiImage {
-    pub fn new(texture: Texture) -> Self {
+    pub fn new(texture: WebGlTexture) -> Self {
         Self { texture }
     }
 }

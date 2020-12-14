@@ -681,12 +681,19 @@ impl Texture {
 
         texture
             .gl
-            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
+            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as i32);
         texture
             .gl
-            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
+            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::LINEAR as i32);
 
-        texture.upload(&image.data, image.width, image.height);
+        texture
+            .gl
+            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as i32);
+        texture
+            .gl
+            .tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as i32);
+
+        texture.upload(Some(&image.data), image.width, image.height);
 
         texture
     }
@@ -706,7 +713,7 @@ impl Texture {
     }
 
     /// Uploads pixels data to the texture memory in the GPU
-    fn upload(&mut self, pixels: &[u8], width: u32, height: u32) {
+    fn upload(&mut self, pixels: Option<&[u8]>, width: u32, height: u32) {
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
                 GL::TEXTURE_2D,
@@ -717,7 +724,7 @@ impl Texture {
                 0,
                 GL::RGBA,
                 GL::UNSIGNED_BYTE,
-                Some(&pixels),
+                pixels,
             )
             .expect("Failed to upload texture data");
 
@@ -784,6 +791,14 @@ impl Mouse {
     }
 }
 
+/// @todo Consider improving this structure
+struct Framebuffer {
+    frame: Option<WebGlFramebuffer>,
+    color: Option<WebGlRenderbuffer>,
+    depth: Option<WebGlRenderbuffer>,
+    texture: Option<Texture>,
+}
+
 #[wasm_bindgen]
 pub struct Context {
     performance: web_sys::Performance,
@@ -791,9 +806,7 @@ pub struct Context {
     gl: WebGlRenderingContext,
     view: Rc<RefCell<Isometry3<f32>>>,
     mouse: Rc<RefCell<Mouse>>,
-    offscreen_framebuffer: Option<WebGlFramebuffer>,
-    offscreen_colorbuffer: Option<WebGlRenderbuffer>,
-    offscreen_depthbuffer: Option<WebGlRenderbuffer>,
+    offscreen_framebuffer: Framebuffer,
     point_pipeline: PointPipeline,
     default_pipeline: DefaultPipeline,
     select_pipeline: SelectPipeline,
@@ -832,6 +845,50 @@ fn generate_node_colors(
     }
 }
 
+fn create_select_framebuffer(gl: &GL, width: i32, height: i32) -> Framebuffer {
+    // Create a framebuffer object
+    let select_framebuffer = gl.create_framebuffer();
+    gl.bind_framebuffer(GL::FRAMEBUFFER, select_framebuffer.as_ref());
+
+    // Create a texture object
+    let mut texture = Texture::new(gl.clone());
+    texture.upload(None, width as u32, height as u32);
+    gl.bind_texture(GL::TEXTURE_2D, None);
+
+    gl.framebuffer_texture_2d(
+        GL::FRAMEBUFFER,
+        GL::COLOR_ATTACHMENT0,
+        GL::TEXTURE_2D,
+        Some(&texture.handle),
+        0,
+    );
+
+    let select_depthbuffer = gl.create_renderbuffer();
+    gl.bind_renderbuffer(GL::RENDERBUFFER, select_depthbuffer.as_ref());
+    gl.renderbuffer_storage(GL::RENDERBUFFER, GL::DEPTH_COMPONENT16, width, height);
+    gl.framebuffer_renderbuffer(
+        GL::FRAMEBUFFER,
+        GL::DEPTH_ATTACHMENT,
+        GL::RENDERBUFFER,
+        select_depthbuffer.as_ref(),
+    );
+
+    // Check error checkframebuffer
+    let e = gl.check_framebuffer_status(GL::FRAMEBUFFER);
+    if e != GL::FRAMEBUFFER_COMPLETE {
+        log("Framebuffer error");
+    }
+
+    gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+
+    Framebuffer {
+        frame: select_framebuffer,
+        color: None,
+        depth: select_depthbuffer,
+        texture: Some(texture),
+    }
+}
+
 #[wasm_bindgen]
 impl Context {
     pub fn new() -> Result<Context, JsValue> {
@@ -841,40 +898,8 @@ impl Context {
         let canvas = get_canvas()?;
         let gl = get_gl_context(&canvas)?;
 
-        let offscreen_framebuffer = gl.create_framebuffer();
-        gl.bind_framebuffer(GL::FRAMEBUFFER, offscreen_framebuffer.as_ref());
-
-        let offscreen_colorbuffer = gl.create_renderbuffer();
-        gl.bind_renderbuffer(GL::RENDERBUFFER, offscreen_colorbuffer.as_ref());
-        gl.renderbuffer_storage(
-            GL::RENDERBUFFER,
-            GL::RGBA4,
-            canvas.width() as i32,
-            canvas.height() as i32,
-        );
-        gl.framebuffer_renderbuffer(
-            GL::FRAMEBUFFER,
-            GL::COLOR_ATTACHMENT0,
-            GL::RENDERBUFFER,
-            offscreen_colorbuffer.as_ref(),
-        );
-
-        let offscreen_depthbuffer = gl.create_renderbuffer();
-        gl.bind_renderbuffer(GL::RENDERBUFFER, offscreen_depthbuffer.as_ref());
-        gl.renderbuffer_storage(
-            GL::RENDERBUFFER,
-            GL::DEPTH_COMPONENT16,
-            canvas.width() as i32,
-            canvas.height() as i32,
-        );
-        gl.framebuffer_renderbuffer(
-            GL::FRAMEBUFFER,
-            GL::DEPTH_ATTACHMENT,
-            GL::RENDERBUFFER,
-            offscreen_depthbuffer.as_ref(),
-        );
-
-        gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+        let offscreen_framebuffer =
+            create_select_framebuffer(&gl, canvas.width() as i32, canvas.height() as i32);
 
         let point_pipeline = create_point_program(&gl);
         let default_pipeline = create_default_program(&gl);
@@ -926,11 +951,18 @@ impl Context {
         mouse_window.text = Some(Text::new());
         gui.add_window(mouse_window);
 
-        let mut image_window = gui::Window::new(320, 320);
-        image_window.name = String::from("Image window");
+        let mut image_window = gui::Window::new(200, 180);
+        image_window.name = String::from("Select buffer");
 
-        let temp_texture = Texture::new(gl.clone());
-        image_window.image = Some(GuiImage::new(temp_texture));
+        // @todo Try with a reference?
+        image_window.image = Some(GuiImage::new(
+            offscreen_framebuffer
+                .texture
+                .as_ref()
+                .unwrap()
+                .handle
+                .clone(),
+        ));
         gui.add_window(image_window);
 
         let ret = Context {
@@ -940,8 +972,6 @@ impl Context {
             view,
             mouse: Rc::new(RefCell::new(Mouse::new())),
             offscreen_framebuffer,
-            offscreen_colorbuffer,
-            offscreen_depthbuffer,
             point_pipeline,
             default_pipeline,
             select_pipeline,
@@ -1106,7 +1136,7 @@ impl Context {
         // Selection pipeline
         if mouse.left_click {
             self.gl
-                .bind_framebuffer(GL::FRAMEBUFFER, self.offscreen_framebuffer.as_ref());
+                .bind_framebuffer(GL::FRAMEBUFFER, self.offscreen_framebuffer.frame.as_ref());
 
             self.draw_select()?;
 
@@ -1290,8 +1320,7 @@ impl Context {
 
         // Clear framebuffer
         self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
-        self.gl.clear(GL::COLOR_BUFFER_BIT);
-        self.gl.clear(GL::DEPTH_BUFFER_BIT);
+        self.gl.clear(GL::COLOR_BUFFER_BIT | GL::DEPTH_BUFFER_BIT);
 
         // Draw all nodes
         for node in &self.nodes {
