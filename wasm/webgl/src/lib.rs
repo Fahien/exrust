@@ -791,12 +791,15 @@ impl Mouse {
     }
 }
 
-/// @todo Consider improving this structure
+enum ColorAttachment {
+    Renderbuffer(WebGlRenderbuffer),
+    Texture(Texture),
+}
+
 struct Framebuffer {
     frame: Option<WebGlFramebuffer>,
-    color: Option<WebGlRenderbuffer>,
+    color: Option<ColorAttachment>,
     depth: Option<WebGlRenderbuffer>,
-    texture: Option<Texture>,
 }
 
 #[wasm_bindgen]
@@ -813,8 +816,7 @@ pub struct Context {
     nodes: Vec<Node>,
     texture: Texture,
 
-    // @todo Remove Rc<RefCell>
-    gui: Rc<RefCell<Gui>>,
+    gui: Gui,
 }
 
 fn create_point_program(gl: &WebGlRenderingContext) -> PointPipeline {
@@ -883,14 +885,39 @@ fn create_select_framebuffer(gl: &GL, width: i32, height: i32) -> Framebuffer {
 
     Framebuffer {
         frame: select_framebuffer,
-        color: None,
+        color: Some(ColorAttachment::Texture(texture)),
         depth: select_depthbuffer,
-        texture: Some(texture),
     }
 }
 
 #[wasm_bindgen]
 impl Context {
+    fn create_gui(gl: &GL, width: u32, height: u32, framebuffer: &Framebuffer) -> Gui {
+        let mut gui = Gui::new(&gl, width, height);
+
+        let mut mouse_window = gui::Window::new(240, 32);
+        mouse_window.name = String::from("Mouse state");
+        mouse_window.element = Some(gui::Element::Text(Text::new()));
+        gui.add_window(mouse_window);
+
+        let mut image_window = gui::Window::new(200, 180);
+        image_window.name = String::from("Select buffer");
+
+        // @todo A better solution could be avoiding to store the image handle as
+        // a member of the window and passing that handle as a parameter to a draw
+        // image function which keeps a copy of that handle just for the time needed
+        // to render a GUI frame.
+        if let Some(color) = framebuffer.color.as_ref() {
+            if let ColorAttachment::Texture(texture) = color {
+                image_window.element =
+                    Some(gui::Element::Image(texture.handle.clone()));
+            }
+        }
+        gui.add_window(image_window);
+
+        gui
+    }
+
     pub fn new() -> Result<Context, JsValue> {
         let window = web_sys::window().unwrap();
         let performance = window.performance().unwrap();
@@ -943,27 +970,7 @@ impl Context {
 
         let texture = Texture::new(gl.clone());
 
-        // @todo Extract to function: Create GUI
-        let mut gui = Gui::new(&gl, canvas.width(), canvas.height());
-
-        let mut mouse_window = gui::Window::new(240, 32);
-        mouse_window.name = String::from("Mouse state");
-        mouse_window.text = Some(Text::new());
-        gui.add_window(mouse_window);
-
-        let mut image_window = gui::Window::new(200, 180);
-        image_window.name = String::from("Select buffer");
-
-        // @todo Try with a reference?
-        image_window.image = Some(GuiImage::new(
-            offscreen_framebuffer
-                .texture
-                .as_ref()
-                .unwrap()
-                .handle
-                .clone(),
-        ));
-        gui.add_window(image_window);
+        let gui = Context::create_gui(&gl, canvas.width(), canvas.height(), &offscreen_framebuffer);
 
         let ret = Context {
             performance,
@@ -978,7 +985,7 @@ impl Context {
             nodes,
             texture,
 
-            gui: Rc::new(RefCell::new(gui)),
+            gui,
         };
 
         let document = window.document().unwrap();
@@ -1101,18 +1108,14 @@ impl Context {
     }
 
     // Update window content
-    fn update_gui(&self) {
-        let focus = self.gui.borrow().focus.clone();
-        let window = &mut self.gui.borrow_mut().windows[0];
+    fn update_gui(&mut self) {
+        let focus = self.gui.focus.clone();
+        let window = &mut self.gui.windows[0];
         let mouse = self.mouse.borrow();
 
-        if let Some(text) = window.text.as_mut() {
+        if let Some(gui::Element::Text(text)) = window.element.as_mut() {
             text.value = format!(
-                "Mouse
- pos: ({},{})
- drag: ({},{})
- left: (click: {}, down: {})
- focus: {:?}",
+                "pos: ({},{})\ndrag: ({},{})\nleft: (click: {}, down: {})\nfocus: {:?}",
                 mouse.pos.x,
                 mouse.pos.y,
                 mouse.drag.x,
@@ -1125,11 +1128,11 @@ impl Context {
     }
 
     /// Handles user input
-    fn handle_input(&self) -> Result<(), JsValue> {
+    fn handle_input(&mut self) -> Result<(), JsValue> {
         let mut mouse = self.mouse.borrow_mut();
 
         // Check whether the GUI captures mouse input
-        if self.gui.borrow_mut().handle_mouse(&mouse) {
+        if self.gui.handle_mouse(&mouse) {
             return Ok(());
         }
 
@@ -1168,7 +1171,7 @@ impl Context {
     }
 
     /// Draws the scene
-    pub fn draw(&self) -> Result<(), JsValue> {
+    pub fn draw(&mut self) -> Result<(), JsValue> {
         self.handle_input()?;
         self.update_gui();
         // After using input, reset its state
@@ -1238,7 +1241,7 @@ impl Context {
             self.draw_node(now as f32, &node, &transform);
         }
 
-        self.gui.borrow().draw();
+        self.gui.draw();
 
         Ok(())
     }
