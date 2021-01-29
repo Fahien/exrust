@@ -24,6 +24,7 @@ members = [
 	"in-action/data_in_depth",
 	"in-action/cpusim",
 	"in-action/memory",
+	"in-action/files-and-storage",
 
 	"wasm/game-of-life",
 	"wasm/webgl",
