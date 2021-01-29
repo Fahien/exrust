@@ -5,7 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector2, Vector3};
+use na::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use nalgebra as na;
 use web_sys::WebGlRenderingContext as GL;
 use web_sys::*;
@@ -77,7 +77,7 @@ fn compile_shader(gl: &GL, shader_type: u32, source: &str) -> WebGlShader {
         let msg = gl
             .get_shader_info_log(&shader)
             .unwrap_or_else(|| String::from("Unknown error"));
-        panic!("Failed to compile shader: {}", msg);
+        panic!("Failed to compile shader: {}\n{}", msg, source);
     }
 
     shader
@@ -167,10 +167,57 @@ impl PointPipeline {
     }
 }
 
+struct ShadowPipeline {
+    program: Program,
+    transform_loc: Option<WebGlUniformLocation>,
+    light_view_proj_loc: Option<WebGlUniformLocation>,
+}
+
+impl ShadowPipeline {
+    fn new(gl: &GL) -> Self {
+        let vert_src = include_str!("../res/shader/shadow.vert.glsl");
+        let frag_src = include_str!("../res/shader/shadow.frag.glsl");
+        let program = Program::new(gl.clone(), vert_src, frag_src);
+        program.bind();
+
+        let transform_loc = program.get_uniform_loc("transform");
+        let light_view_proj_loc = program.get_uniform_loc("light_view_proj");
+
+        Self {
+            program,
+            transform_loc,
+            light_view_proj_loc,
+        }
+    }
+
+    fn bind_attribs(&self) {
+        // Position
+        let position_loc = self.program.get_attrib_loc("in_position");
+
+        // Number of bytes between each vertex element
+        let stride = std::mem::size_of::<Vertex>() as i32;
+        // Offset of vertex data from the beginning of the buffer
+        let offset = 0;
+
+        self.program.gl.vertex_attrib_pointer_with_i32(
+            position_loc as u32,
+            3,
+            GL::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        self.program
+            .gl
+            .enable_vertex_attrib_array(position_loc as u32);
+    }
+}
+
 struct DefaultPipeline {
     program: Program,
     transform_loc: Option<WebGlUniformLocation>,
     normal_transform_loc: Option<WebGlUniformLocation>,
+    light_view_proj_loc: Option<WebGlUniformLocation>,
 }
 
 impl DefaultPipeline {
@@ -180,11 +227,13 @@ impl DefaultPipeline {
 
         let transform_loc = program.get_uniform_loc("transform");
         let normal_transform_loc = program.get_uniform_loc("normal_transform");
+        let light_view_proj_loc = program.get_uniform_loc("light_view_proj");
 
         Self {
             program,
             transform_loc,
             normal_transform_loc,
+            light_view_proj_loc,
         }
     }
 
@@ -667,7 +716,7 @@ pub struct Texture {
 
 impl Texture {
     /// Returns a new texture uploading data from the specified image
-    fn from_image(gl: GL, image: &Image) -> Self {
+    fn from_image(gl: GL, texture_unit: u32, image: &Image) -> Self {
         let handle = gl.create_texture().expect("Failed to create texture");
 
         let mut texture = Self {
@@ -677,7 +726,7 @@ impl Texture {
             height: 0,
         };
 
-        texture.bind();
+        texture.bind(texture_unit);
 
         texture
             .gl
@@ -699,16 +748,16 @@ impl Texture {
     }
 
     /// Returns a new default texture with a default image (2x2 red, blue, green, white)
-    fn new(gl: GL) -> Self {
+    fn new(gl: GL, texture_unit: u32) -> Self {
         let pixels = [
             255u8, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
         ];
         let image = Image::from_raw(&pixels, 2, 2);
-        Self::from_image(gl, &image)
+        Self::from_image(gl, texture_unit, &image)
     }
 
-    fn bind(&self) {
-        self.gl.active_texture(GL::TEXTURE0);
+    fn bind(&self, texture_unit: u32) {
+        self.gl.active_texture(texture_unit);
         self.gl.bind_texture(GL::TEXTURE_2D, Some(&self.handle));
     }
 
@@ -742,6 +791,7 @@ impl Drop for Texture {
 struct Node {
     id: u32,
     transform: Isometry3<f32>,
+    scale: Vector3<f32>,
     primitive: Primitive,
     children: Vec<Node>,
 }
@@ -751,6 +801,7 @@ impl Node {
         Self {
             id: 0,
             transform: Isometry3::identity(),
+            scale: Vector3::new(1.0, 1.0, 1.0),
             primitive,
             children: vec![],
         }
@@ -796,10 +847,21 @@ enum ColorAttachment {
     Texture(Texture),
 }
 
+// @todo Implement drop trait
 struct Framebuffer {
     frame: Option<WebGlFramebuffer>,
     color: Option<ColorAttachment>,
     depth: Option<WebGlRenderbuffer>,
+}
+
+impl Framebuffer {
+    fn bind(&self, gl: &GL) {
+        gl.bind_framebuffer(GL::FRAMEBUFFER, self.frame.as_ref());
+    }
+
+    fn unbind(&self, gl: &GL) {
+        gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+    }
 }
 
 #[wasm_bindgen]
@@ -808,9 +870,12 @@ pub struct Context {
     canvas: HtmlCanvasElement,
     gl: WebGlRenderingContext,
     view: Rc<RefCell<Isometry3<f32>>>,
+    light_view_proj: na::Matrix4<f32>,
     mouse: Rc<RefCell<Mouse>>,
     offscreen_framebuffer: Framebuffer,
+    shadow_framebuffer: Framebuffer,
     point_pipeline: PointPipeline,
+    shadow_pipeline: ShadowPipeline,
     default_pipeline: DefaultPipeline,
     select_pipeline: SelectPipeline,
     nodes: Vec<Node>,
@@ -853,7 +918,7 @@ fn create_select_framebuffer(gl: &GL, width: i32, height: i32) -> Framebuffer {
     gl.bind_framebuffer(GL::FRAMEBUFFER, select_framebuffer.as_ref());
 
     // Create a texture object
-    let mut texture = Texture::new(gl.clone());
+    let mut texture = Texture::new(gl.clone(), GL::TEXTURE0);
     texture.upload(None, width as u32, height as u32);
     gl.bind_texture(GL::TEXTURE_2D, None);
 
@@ -890,6 +955,49 @@ fn create_select_framebuffer(gl: &GL, width: i32, height: i32) -> Framebuffer {
     }
 }
 
+fn create_shadow_framebuffer(gl: &GL, width: i32, height: i32) -> Framebuffer {
+    // Create a framebuffer object
+    let shadow_framebuffer = gl.create_framebuffer();
+    gl.bind_framebuffer(GL::FRAMEBUFFER, shadow_framebuffer.as_ref());
+
+    // Create a texture object
+    let mut texture = Texture::new(gl.clone(), GL::TEXTURE1);
+    texture.upload(None, width as u32, height as u32);
+    gl.bind_texture(GL::TEXTURE_2D, None);
+
+    gl.framebuffer_texture_2d(
+        GL::FRAMEBUFFER,
+        GL::COLOR_ATTACHMENT0,
+        GL::TEXTURE_2D,
+        Some(&texture.handle),
+        0,
+    );
+
+    let select_depthbuffer = gl.create_renderbuffer();
+    gl.bind_renderbuffer(GL::RENDERBUFFER, select_depthbuffer.as_ref());
+    gl.renderbuffer_storage(GL::RENDERBUFFER, GL::DEPTH_COMPONENT16, width, height);
+    gl.framebuffer_renderbuffer(
+        GL::FRAMEBUFFER,
+        GL::DEPTH_ATTACHMENT,
+        GL::RENDERBUFFER,
+        select_depthbuffer.as_ref(),
+    );
+
+    // Check error checkframebuffer
+    let e = gl.check_framebuffer_status(GL::FRAMEBUFFER);
+    if e != GL::FRAMEBUFFER_COMPLETE {
+        log("Framebuffer error");
+    }
+
+    gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+
+    Framebuffer {
+        frame: shadow_framebuffer,
+        color: Some(ColorAttachment::Texture(texture)),
+        depth: select_depthbuffer,
+    }
+}
+
 #[wasm_bindgen]
 impl Context {
     fn create_gui(gl: &GL, width: u32, height: u32, framebuffer: &Framebuffer) -> Gui {
@@ -901,7 +1009,7 @@ impl Context {
         gui.add_window(mouse_window);
 
         let mut image_window = gui::Window::new(200, 180);
-        image_window.name = String::from("Select buffer");
+        image_window.name = String::from("Shadow buffer");
 
         // @todo A better solution could be avoiding to store the image handle as
         // a member of the window and passing that handle as a parameter to a draw
@@ -909,8 +1017,7 @@ impl Context {
         // to render a GUI frame.
         if let Some(color) = framebuffer.color.as_ref() {
             if let ColorAttachment::Texture(texture) = color {
-                image_window.element =
-                    Some(gui::Element::Image(texture.handle.clone()));
+                image_window.element = Some(gui::Element::Image(texture.handle.clone()));
             }
         }
         gui.add_window(image_window);
@@ -927,8 +1034,11 @@ impl Context {
 
         let offscreen_framebuffer =
             create_select_framebuffer(&gl, canvas.width() as i32, canvas.height() as i32);
+        let shadow_framebuffer =
+            create_shadow_framebuffer(&gl, canvas.width() as i32, canvas.height() as i32);
 
         let point_pipeline = create_point_program(&gl);
+        let shadow_pipeline = ShadowPipeline::new(&gl);
         let default_pipeline = create_default_program(&gl);
         let mut select_pipeline = SelectPipeline::new(&gl);
 
@@ -939,25 +1049,39 @@ impl Context {
             &Vector3::y_axis(),
         )));
 
+        // Light View-Projection
+        let light_view = Isometry3::look_at_rh(
+            &Point3::new(0.0, 0.0, 12.0),
+            &Point3::origin(),
+            &Vector3::y_axis(),
+        );
+
+        let width = canvas.width() as f32;
+        let height = canvas.height() as f32;
+        let light_proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 100.0);
+
+        let light_view_proj = light_proj.to_homogeneous() * light_view.to_homogeneous();
+
         let mut nodes = vec![];
 
         let cube = Geometry::cube();
 
         let mut root = Node::new(Primitive::new(gl.clone(), &cube));
         root.transform
-            .append_translation_mut(&Translation3::new(0.0, 0.0, 0.0));
+            .append_translation_mut(&Translation3::new(0.0, 0.0, 2.0));
 
         let mut node_right = Node::new(Primitive::new(gl.clone(), &cube));
         node_right.id = 1;
         node_right
             .transform
-            .append_translation_mut(&Translation3::new(1.5, 0.0, 0.0));
+            .append_translation_mut(&Translation3::new(0.0, 0.0, -20.0));
+        node_right.scale = Vector3::new(10.0,10.0, 1.0);
 
         let mut node_left = Node::new(Primitive::new(gl.clone(), &cube));
         node_left.id = 2;
         node_left
             .transform
-            .append_translation_mut(&Translation3::new(-1.5, 0.0, 0.0));
+            .append_translation_mut(&Translation3::new(-1.5, 0.0, 2.0));
 
         root.children.push(node_right);
         root.children.push(node_left);
@@ -968,18 +1092,21 @@ impl Context {
 
         nodes.push(root);
 
-        let texture = Texture::new(gl.clone());
+        let texture = Texture::new(gl.clone(), GL::TEXTURE0);
 
-        let gui = Context::create_gui(&gl, canvas.width(), canvas.height(), &offscreen_framebuffer);
+        let gui = Context::create_gui(&gl, canvas.width(), canvas.height(), &shadow_framebuffer);
 
         let ret = Context {
             performance,
             canvas,
             gl,
             view,
+            light_view_proj,
             mouse: Rc::new(RefCell::new(Mouse::new())),
             offscreen_framebuffer,
+            shadow_framebuffer,
             point_pipeline,
+            shadow_pipeline,
             default_pipeline,
             select_pipeline,
             nodes,
@@ -1138,8 +1265,7 @@ impl Context {
 
         // Selection pipeline
         if mouse.left_click {
-            self.gl
-                .bind_framebuffer(GL::FRAMEBUFFER, self.offscreen_framebuffer.frame.as_ref());
+            self.offscreen_framebuffer.bind(&self.gl);
 
             self.draw_select()?;
 
@@ -1154,7 +1280,7 @@ impl Context {
                 Some(&mut pixel),
             )?;
 
-            self.gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+            self.offscreen_framebuffer.unbind(&self.gl);
 
             for pair in self.select_pipeline.node_colors.iter() {
                 let color = pair.1;
@@ -1177,8 +1303,45 @@ impl Context {
         // After using input, reset its state
         self.mouse.borrow_mut().reset();
 
+        // Time
+        let now = self.performance.now();
+
+        // Update state of the scene
+        let mut transform = Isometry3::<f32>::identity();
+        //let rotation =
+        //    UnitQuaternion::<f32>::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
+        //transform.append_rotation_mut(&rotation);
+        //let rotation =
+        //    UnitQuaternion::<f32>::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
+        //transform.append_rotation_mut(&rotation);
+        let translation = Translation3::new(0.0, 0.0, 4.0 * (now as f32 / 256.0).sin());
+        transform.append_translation_mut(&translation);
+
         // Set graphics state
         self.gl.enable(GL::DEPTH_TEST);
+
+        // Pass 1: Shadows
+        self.shadow_pipeline.program.bind();
+
+        // Light view_proj
+        self.gl.uniform_matrix4fv_with_f32_array(
+            self.shadow_pipeline.light_view_proj_loc.as_ref(),
+            false,
+            self.light_view_proj.as_slice(),
+        );
+
+        self.shadow_framebuffer.bind(&self.gl);
+        self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
+        self.gl.clear(GL::COLOR_BUFFER_BIT);
+        self.gl.clear(GL::DEPTH_BUFFER_BIT);
+
+        // Draw all nodes
+        for node in &self.nodes {
+            self.draw_shadow_node(now as f32, &node, &transform);
+        }
+
+        self.shadow_framebuffer.unbind(&self.gl);
+
         self.gl.enable(GL::BLEND);
         self.gl.blend_func(GL::SRC_ALPHA, GL::ONE_MINUS_SRC_ALPHA);
 
@@ -1198,11 +1361,18 @@ impl Context {
 
         let width = self.canvas.width() as f32;
         let height = self.canvas.height() as f32;
-        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 256.0);
+        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 100.0);
         self.gl.uniform_matrix4fv_with_f32_array(
             proj_loc.as_ref(),
             false,
             proj.to_homogeneous().as_slice(),
+        );
+
+        // Light view-proj
+        self.gl.uniform_matrix4fv_with_f32_array(
+            self.default_pipeline.light_view_proj_loc.as_ref(),
+            false,
+            self.light_view_proj.as_slice(),
         );
 
         // Lighting
@@ -1217,24 +1387,19 @@ impl Context {
             .uniform3f(light_position_loc.as_ref(), 4.0, 1.0, 1.0);
 
         // Texture
-        self.texture.bind();
+        self.texture.bind(GL::TEXTURE0);
         let sampler_loc = self.default_pipeline.program.get_uniform_loc("tex_sampler");
         self.gl.uniform1i(sampler_loc.as_ref(), 0);
+
+        if let Some(ColorAttachment::Texture(texture)) = self.shadow_framebuffer.color.as_ref() {
+            texture.bind(GL::TEXTURE1);
+            let sampler_loc = self.default_pipeline.program.get_uniform_loc("shadow_map");
+            self.gl.uniform1i(sampler_loc.as_ref(), 1);
+        }
 
         self.gl.clear_color(0.2, 0.2, 0.3, 1.0);
         self.gl.clear(GL::COLOR_BUFFER_BIT);
         self.gl.clear(GL::DEPTH_BUFFER_BIT);
-
-        // Time
-        let now = self.performance.now();
-
-        let mut transform = Isometry3::<f32>::identity();
-        let rotation =
-            UnitQuaternion::<f32>::from_axis_angle(&Vector3::z_axis(), now as f32 / 4096.0);
-        transform.append_rotation_mut(&rotation);
-        let rotation =
-            UnitQuaternion::<f32>::from_axis_angle(&Vector3::y_axis(), now as f32 / 4096.0);
-        transform.append_rotation_mut(&rotation);
 
         // Draw all nodes
         for node in &self.nodes {
@@ -1244,6 +1409,25 @@ impl Context {
         self.gui.draw();
 
         Ok(())
+    }
+
+    fn draw_shadow_node(&self, now: f32, node: &Node, parent_trs: &Isometry3<f32>) {
+        node.primitive.bind();
+        self.shadow_pipeline.bind_attribs();
+
+        let transform = parent_trs * node.transform;
+
+        self.gl.uniform_matrix4fv_with_f32_array(
+            self.shadow_pipeline.transform_loc.as_ref(),
+            false,
+            transform.to_homogeneous().append_nonuniform_scaling(&node.scale).as_slice(),
+        );
+
+        node.primitive.draw();
+
+        for child in &node.children {
+            self.draw_shadow_node(now, child, &transform);
+        }
     }
 
     fn draw_node(&self, now: f32, node: &Node, parent_trs: &Isometry3<f32>) {
@@ -1267,7 +1451,7 @@ impl Context {
         self.gl.uniform_matrix4fv_with_f32_array(
             self.default_pipeline.transform_loc.as_ref(),
             false,
-            transform.to_homogeneous().as_slice(),
+            transform.to_homogeneous().append_nonuniform_scaling(&node.scale).as_slice(),
         );
 
         let normal_transform = transform.inverse().to_homogeneous().transpose();
@@ -1303,7 +1487,7 @@ impl Context {
 
         let width = self.canvas.width() as f32;
         let height = self.canvas.height() as f32;
-        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 256.0);
+        let proj = nalgebra::Perspective3::new(width / height, 3.14 / 4.0, 0.125, 100.0);
         self.gl.uniform_matrix4fv_with_f32_array(
             proj_loc.as_ref(),
             false,

@@ -275,7 +275,7 @@ impl Gui {
             255, 255, 255, 255, // Shadow color
         ];
         let image = Image::from_raw(pixels, 1, 4);
-        let texture = Texture::from_image(gl.clone(), &image);
+        let texture = Texture::from_image(gl.clone(), GL::TEXTURE0, &image);
 
         let font = Font::new(gl.clone());
 
@@ -385,7 +385,7 @@ impl Gui {
     fn draw_window(&self, window: &Window, i: usize) {
         self.pipeline.set_sampler(0);
 
-        self.texture.bind();
+        self.texture.bind(GL::TEXTURE0);
 
         self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
 
@@ -459,7 +459,7 @@ impl Gui {
         self.pipeline.draw(&self.shadow);
 
         // Text
-        self.font.texture.bind();
+        self.font.texture.bind(GL::TEXTURE0);
         self.pipeline.set_color(&[1.0, 1.0, 1.0, 1.0]);
 
         // Draw window title name
@@ -774,7 +774,7 @@ impl Font {
         let data = include_bytes!("../res/font/spd.png");
         let image = Image::from_png(data);
 
-        let texture = Texture::from_image(gl.clone(), &image);
+        let texture = Texture::from_image(gl.clone(), GL::TEXTURE0, &image);
 
         let tile_width = 8;
         let tile_height = 13;
