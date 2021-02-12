@@ -1,0 +1,24 @@
+[package]
+name = "networking"
+version = "0.1.0"
+authors = ["Antonio Caggiano <info@antoniocaggiano.eu>"]
+edition = "2018"
+
+[dependencies]
+reqwest = "0.9"
+openssl = "0.10.32"
+clap = "2.33.3"
+trust-dns-resolver = "0.20.0"
+rand = "0.8.3"
+
+[[bin]]
+name = "http"
+path = "src/http/main.rs"
+
+[[bin]]
+name = "tcp"
+path = "src/tcp/main.rs"
+
+[[bin]]
+name = "dns"
+path = "src/dns/main.rs"
