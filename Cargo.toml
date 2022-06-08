@@ -26,6 +26,7 @@ members = [
 	"in-action/memory",
 	"in-action/files-and-storage",
 	"in-action/networking",
+	"in-action/time",
 
 	"wasm/game-of-life",
 	"wasm/webgl",
