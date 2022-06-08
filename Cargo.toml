@@ -32,4 +32,5 @@ members = [
 	"wasm/webgl",
 
 	"async/getting-started",
+	"async/execution",
 ]
