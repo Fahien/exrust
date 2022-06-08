@@ -10,7 +10,7 @@ proc-macro = true
 
 [dependencies]
 # Parses Rust code from a string into a data structure
-syn = "1.0"
+syn = "1.0.96"
 
 # Turns syn data structures back into Rust code
-quote = "1.0"
+quote = "1.0.18"

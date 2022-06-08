@@ -49,7 +49,7 @@ impl File {
     }
 
     fn open(&mut self) -> Result<(), String> {
-        let one_in_ten = rand::thread_rng().gen_weighted_bool(10);
+        let one_in_ten = rand::thread_rng().gen_ratio(1, 10);
         if one_in_ten {
             return Err(format!("Failed to open file {}", self.name))
         }

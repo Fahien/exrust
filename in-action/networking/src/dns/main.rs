@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use clap::{App, Arg};
+use clap::{Command, Arg};
 use trust_dns_resolver::proto::{
     op::{Message, MessageType, OpCode, Query},
     rr::RecordType,
@@ -11,16 +11,16 @@ use trust_dns_resolver::proto::{
 };
 
 fn main() {
-    let matches = App::new("dns")
+    let matches = Command::new("dns")
         .version("0.2")
         .author("Antonio Caggiano <info@antoniocaggiano.eu>")
         .about("DNS resolver")
         .arg(
-            Arg::with_name("dns-server")
-                .short("s")
+            Arg::new("dns-server")
+                .short('s')
                 .default_value("1.1.1.1"),
         )
-        .arg(Arg::with_name("domain-name").required(true))
+        .arg(Arg::new("domain-name").required(true))
         .get_matches();
 
     let dns_server = matches.value_of("dns-server").unwrap();
@@ -63,7 +63,7 @@ fn main() {
 
     for answer in dns_response.answers() {
         if answer.record_type() == RecordType::A {
-            let resource = answer.rdata();
+            let resource = answer.data().expect("Failed to get data from answer");
             let ip = resource.to_ip_addr().expect("Failed to get IP address");
             println!("{}", ip.to_string());
         }

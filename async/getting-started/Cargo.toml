@@ -5,4 +5,4 @@ authors = ["Antonio Caggiano <info@antoniocaggiano.eu>"]
 edition = "2018"
 
 [dependencies]
-futures = "0.3"
+futures = "0.3.21"

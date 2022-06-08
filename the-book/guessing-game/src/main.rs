@@ -5,7 +5,7 @@ use std::io::Write;
 
 fn main() {
     // Random number generator for current thread
-    let secret = rand::thread_rng().gen_range(1, 101);
+    let secret = rand::thread_rng().gen_range(1..101);
     loop {
         print!("Guess: ");
         io::stdout().flush().expect("Failed to flush");

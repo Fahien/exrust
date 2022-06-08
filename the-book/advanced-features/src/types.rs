@@ -12,9 +12,13 @@ pub fn aliases() {
 // For example with Result<T,E>
 type Result<T> = std::result::Result<T, std::io::Error>;
 
+pub fn use_result() -> Result<&'static str> {
+	Result::Ok("Result")
+}
+
 // Rust has a special type named !
 // This is called "never type", used for functions that never return
 // These kinds of functions are said to be "diverging"
-fn bar() -> ! {
+fn _bar() -> ! {
 	panic!("Fly you fools!")
 }

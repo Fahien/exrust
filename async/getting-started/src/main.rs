@@ -3,7 +3,7 @@ use std::thread;
 // A Future is an asynchronous computation that can produce a value
 use futures::{executor::block_on, join};
 
-fn download(url: &str) {
+fn download(_url: &str) {
 	todo!()
 }
 
@@ -17,7 +17,7 @@ fn get_two_sites_with_threads() {
 
 // Value returned from an async fn is a Future.
 // A Future needs to be run on an executor.
-async fn download_async(url: &str) {
+async fn download_async(_url: &str) {
 	todo!()
 }
 

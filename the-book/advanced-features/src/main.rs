@@ -16,6 +16,7 @@ fn main() {
     traits::newtype();
 
     types::aliases();
+    types::use_result().unwrap();
 
     functions::functions();
     functions::closures();

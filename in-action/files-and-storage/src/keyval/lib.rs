@@ -61,7 +61,8 @@ impl Store {
         debug_assert_eq!(data.len(), data_len as usize);
 
         // Apply checking function to data and compare with the read one
-        let computed_checksum = crc::crc32::checksum_ieee(&data);
+        let checksum_ieee = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+        let computed_checksum = checksum_ieee.checksum(&data);
         if computed_checksum != checksum {
             panic!(
                 "Checksum failed ({:08x} != {:08})",
@@ -135,7 +136,8 @@ impl Store {
         let new_position = writer.seek(SeekFrom::End(0))?;
 
         // Write header and data
-        let checksum = crc::crc32::checksum_ieee(&tmp);
+        let checksum_ieee = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+        let checksum = checksum_ieee.checksum(&tmp);
         writer.write_u32::<LittleEndian>(checksum)?;
         writer.write_u32::<LittleEndian>(key_len as u32)?;
         writer.write_u32::<LittleEndian>(val_len as u32)?;
