@@ -30,4 +30,6 @@ members = [
 
 	"wasm/game-of-life",
 	"wasm/webgl",
+
+	"async/getting-started",
 ]
